@@ -868,32 +868,7 @@
         });
 
         // --- 5. DETAIL ---
-        window.openProjectDetail = async (id) => {
-            document.getElementById('loading').classList.remove('hidden');
-            const docSnap = await getDoc(doc(db, 'projects', id));
-            const data = docSnap.data();
-            state.currentProject = { id, ...data };
-            state.editMode = false;
-            state.currentPage = 1;
-            state.showAll = false;
-            
-            document.getElementById('edit-mode-toggle').checked = false;
-            document.getElementById('detail-title').innerText = data.name;
-            document.getElementById('detail-year').innerText = data.academicYear || '2568';
-            document.getElementById('detail-subtitle').innerText = `${data.subjects.length} รายวิชา`;
-            
-            updateVisibilityButtonUI(data.isVisible);
-
-            const headerRow = document.querySelector('thead tr');
-            headerRow.innerHTML = `<th class="px-6 py-4 w-16 text-center border-b border-slate-200">#</th><th class="px-6 py-4 border-b border-slate-200">เลขที่สอบ</th><th class="px-6 py-4 border-b border-slate-200">ชื่อ-สกุล</th>`;
-            data.subjects.forEach(s => {
-                headerRow.innerHTML += `<th class="px-4 py-4 text-center bg-slate-50/50 border-b border-slate-200"><div class="flex flex-col items-center"><span class="text-xs font-bold text-slate-700">${s.name}</span><span class="text-[10px] text-slate-400">เต็ม ${s.max}</span></div></th>`;
-            });
-            headerRow.innerHTML += `<th class="px-6 py-4 text-center border-b border-slate-200">รวม</th><th class="px-6 py-4 text-center border-b border-slate-200">ลบ</th>`;
-
-            await loadStudents(id);
-            window.router.navigate('detail');
-        };
+                window.openProjectDetail = async (id) => { document.getElementById('loading').classList.remove('hidden'); const s=await getDoc(doc(db,'projects',id)); const d=s.data(); state.currentProject={id,...d}; state.editMode=false; state.projectView='list'; window.switchProjectView('list'); document.getElementById('detail-title').innerText=d.name; document.getElementById('detail-year').innerText=d.academicYear||'2568'; document.getElementById('detail-subtitle').innerText=`${d.subjects.length} รายวิชา`; const b=document.getElementById('btn-visibility'); if(d.isVisible){b.innerHTML=`<i class="fas fa-eye-slash text-red-500"></i> <span class="hidden sm:inline text-red-600">ซ่อนผล</span>`;}else{b.innerHTML=`<i class="fas fa-eye text-slate-400"></i> <span class="hidden sm:inline">แสดงผล</span>`;} await loadStudents(id); window.router.navigate('detail'); };
 
         window.openEditProjectModal = () => {
             const p = state.currentProject;
@@ -1104,7 +1079,7 @@
         window.toggleVisibility = async () => { const p = state.currentProject; await updateDoc(doc(db,'projects',p.id),{isVisible:!p.isVisible}); p.isVisible=!p.isVisible; updateVisibilityButtonUI(p.isVisible); };
         document.getElementById('edit-mode-toggle').addEventListener('change', (e) => { state.editMode = e.target.checked; calculateAndRender(); });
         document.getElementById('search-box').addEventListener('keyup', () => { state.currentPage=1; calculateAndRender(); });
-        
+                window.showProjectStats=()=>{ /* Same as prev */ const p=state.currentProject; if(!p||state.studentsCache.length===0)return CustomSwal.fire('No Data','','info'); const sc=state.studentsCache.map(s=>s.total); const mx=Math.max(...sc); const mn=Math.min(...sc); const avg=(sc.reduce((a,b)=>a+b,0)/sc.length).toFixed(2); const mn2=sc.reduce((a,b)=>a+b,0)/sc.length; const v=sc.reduce((a,b)=>a+Math.pow(b-mn2,2),0)/sc.length; const sd=Math.sqrt(v).toFixed(2); let h=''; p.subjects.forEach(s=>{ const subS=state.studentsCache.map(x=>parseFloat(x.scores[s.name]||0)); const smx=Math.max(...subS); const smn=Math.min(...subS); const savg=(subS.reduce((a,b)=>a+b,0)/subS.length).toFixed(2); h+=`<tr class="border-b border-slate-100"><td class="py-3 px-4 font-medium">${s.name}</td><td class="text-center text-slate-600">${savg}</td><td class="text-center text-green-600 font-bold">${smx}</td><td class="text-center text-red-500 font-bold">${smn}</td></tr>`; }); document.getElementById('stats-content').innerHTML=`<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"><div class="bg-blue-50 p-4 rounded-xl text-center border border-blue-100"><div class="text-xs text-blue-500 uppercase font-bold">จำนวนสอบ</div><div class="text-2xl font-bold text-blue-700">${state.studentsCache.length}</div></div><div class="bg-green-50 p-4 rounded-xl text-center border border-green-100"><div class="text-xs text-green-500 uppercase font-bold">เฉลี่ยรวม</div><div class="text-2xl font-bold text-green-700">${avg}</div></div><div class="bg-purple-50 p-4 rounded-xl text-center border border-purple-100"><div class="text-xs text-purple-500 uppercase font-bold">S.D.</div><div class="text-2xl font-bold text-purple-700">${sd}</div></div><div class="bg-orange-50 p-4 rounded-xl text-center border border-orange-100"><div class="text-xs text-orange-500 uppercase font-bold">Max/Min</div><div class="text-lg font-bold text-orange-700">${mx} / ${mn}</div></div></div><h4 class="font-bold mb-3 border-l-4 border-spt-primary pl-3">สถิติรายวิชา</h4><div class="overflow-hidden rounded-xl border border-slate-200"><table class="w-full text-sm text-left"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-3 px-4">วิชา</th><th class="text-center">เฉลี่ย</th><th class="text-center">สูงสุด</th><th class="text-center">ต่ำสุด</th></tr></thead><tbody>${h}</tbody></table></div>`; openModal('modal-stats'); };
         window.updateScoreInline = async (id, sub, val) => { 
             const num = parseFloat(val); 
             if(isNaN(num)) return; 
