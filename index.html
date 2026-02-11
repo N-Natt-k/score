@@ -1068,6 +1068,7 @@ window.openProjectDetail = async (id) => {
                 // loadStudents will hide loading at the end
             }
         };
+                window.clearProjectScores = async () => { if(state.studentsCache.length===0) return CustomSwal.fire('Info','ไม่มีข้อมูล','info'); const r = await CustomSwal.fire({title:'ล้างคะแนน?',text:'คะแนนจะเป็น 0 แต่รายชื่อยังอยู่',icon:'warning',showCancelButton:true,confirmButtonColor:'#f97316'}); if(r.isConfirmed){ document.getElementById('loading').classList.remove('hidden'); const ops=state.studentsCache.map(s=>b=>b.update(doc(db,'students',s.id),{scores:{}})); await runBatch(ops); loadStudents(state.currentProject.id); CustomSwal.fire('Success','เรียบร้อย','success'); } };
         window.deleteCurrentProject = async () => { 
             if(!confirm('ยืนยันลบโครงการ?')) return; 
             document.getElementById('loading').classList.remove('hidden'); // Show loading
