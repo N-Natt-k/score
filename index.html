@@ -585,7 +585,7 @@
             if(id.length !== 13) return Swal.fire({icon: 'warning', title: 'ข้อมูลไม่ถูกต้อง', text: 'กรุณากรอกเลขบัตรประชาชน 13 หลัก'});
             document.getElementById('loading').classList.remove('hidden');
             try {
-                if(!auth.currentUser) await signInAnonymously(auth);
+               // if(!auth.currentUser) await signInAnonymously(auth);
                 const q = query(collection(db, 'students'), where('citizenId', '==', id));
                 const snaps = await getDocs(q);
                 if(snaps.empty) throw new Error('ไม่พบข้อมูลในระบบ');
