@@ -1152,19 +1152,7 @@ window.openProjectDetail = async (id) => {
             input.value = '';
         };
 
-        window.exportCSV = () => {
-             const proj = state.currentProject;
-             const data = state.studentsCache.map(s => {
-                 const row = { 'Rank': s.rank || '-', 'ExamID': s.examId, 'Name': `${s.prefix}${s.name} ${s.surname}` };
-                 proj.subjects.forEach(sub => row[sub.name] = s.scores[sub.name]||0);
-                 row['Total'] = s.total;
-                 return row;
-             });
-             const ws = XLSX.utils.json_to_sheet(data);
-             const wb = XLSX.utils.book_new();
-             XLSX.utils.book_append_sheet(wb, ws, "Scores");
-             XLSX.writeFile(wb, `${proj.name}_Export.csv`);
-        };
+                window.exportCSV=()=>{const p=state.currentProject;const d=state.studentsCache.map(s=>{const r={'Rank':s.rank,'ExamID':s.examId,'Name':`${s.prefix}${s.name} ${s.surname}`};p.subjects.forEach(sub=>r[sub.name]=s.scores[sub.name]||0);r['Total']=s.total;return r;});const ws=XLSX.utils.json_to_sheet(d);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Scores");XLSX.writeFile(wb,`${p.name}.csv`);};
 
         document.getElementById('form-add-student').addEventListener('submit', async (e) => {
             e.preventDefault();
