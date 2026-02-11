@@ -465,6 +465,14 @@
             showAll: false,
             myRecords: []
         };
+        const CustomSwal = Swal.mixin({
+            customClass: {
+                popup: 'rounded-[20px] font-sans',
+                confirmButton: 'bg-spt-primary text-white px-6 py-2.5 rounded-xl font-bold shadow-lg hover:bg-spt-dark',
+                cancelButton: 'bg-slate-100 text-slate-500 px-6 py-2.5 rounded-xl font-bold hover:bg-slate-200'
+            },
+            buttonsStyling: false
+        });
 
         // --- 1. ROUTER & GLOBAL FUNCTIONS ---
         window.router = {
