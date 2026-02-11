@@ -607,16 +607,7 @@
             }
         });
 
-        document.getElementById('btn-logout').addEventListener('click', () => {
-             Swal.fire({
-                title: 'ยืนยันการออก?',
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonText: 'ออกจากระบบ',
-                cancelButtonText: 'ยกเลิก',
-                confirmButtonColor: '#E91E63'
-            }).then((result) => { if(result.isConfirmed) signOut(auth); });
-        });
+                document.getElementById('btn-logout').addEventListener('click',()=>{CustomSwal.fire({title:'ออกจากระบบ?',icon:'question',showCancelButton:true,confirmButtonText:'ยืนยัน',cancelButtonText:'ยกเลิก'}).then((r)=>{if(r.isConfirmed)signOut(auth)});});
 
         // --- 3. STUDENT VIEW ---
         async function renderStudentProjectList(records) {
