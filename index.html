@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบตรวจสอบคะแนนสอบเข้า - โรงเรียนสตรีพัทลุง</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <!-- SheetJS for Excel/CSV Handling -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Sarabun', 'sans-serif'],
+                    },
+                    colors: {
+                        spt: {
+                            primary: '#E91E63', // Pinkish tone based on school vibes
+                            secondary: '#FCE4EC',
+                            dark: '#880E4F'
+                        }
+                    },
+                    boxShadow: {
+                        'soft': '0 10px 40px -10px rgba(0,0,0,0.08)',
+                        'card': '0 4px 20px 0px rgba(0,0,0,0.05)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #f8fafc;
+            background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Hide scrollbar for neat tables */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="text-slate-700 min-h-screen flex flex-col font-sans">
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 glass-panel shadow-sm border-b border-slate-200/60">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-20 items-center">
+                <div class="flex items-center gap-4 cursor-pointer" onclick="window.location.hash = ''">
+                    <img src="https://spt-curriculum.vercel.app/spt.png" alt="Logo" class="h-12 w-auto drop-shadow-md hover:scale-105 transition-transform duration-300">
+                    <div class="flex flex-col">
+                        <span class="font-bold text-xl text-spt-primary leading-tight">Satri Phatthalung</span>
+                        <span class="text-xs text-slate-500 font-medium">Admission System</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div id="user-info" class="hidden text-sm font-medium bg-spt-secondary text-spt-dark px-4 py-2 rounded-full shadow-inner"></div>
+                    <button id="btn-logout" class="hidden text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-full transition-all shadow-sm font-semibold">
+                        <i class="fas fa-sign-out-alt mr-2"></i> ออกจากระบบ
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="app-container" class="flex-grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Loading Spinner -->
+        <div id="loading" class="fixed inset-0 bg-white/80 z-[60] flex flex-col items-center justify-center hidden">
+            <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-spt-primary"></div>
+            <p class="mt-4 text-spt-primary font-semibold">กำลังโหลดข้อมูล...</p>
+        </div>
+
+        <!-- 1. Login Page -->
+        <section id="page-login" class="view-section hidden flex flex-col items-center justify-center min-h-[60vh]">
+            <div class="w-full max-w-md bg-white rounded-3xl shadow-soft p-1 relative overflow-hidden">
+                <!-- Decorative Circle -->
+                <div class="absolute -top-20 -right-20 w-40 h-40 bg-spt-primary/10 rounded-full blur-3xl"></div>
+                
+                <!-- Tab Headers -->
+                <div class="grid grid-cols-2 gap-1 p-1 bg-slate-50 rounded-t-[1.3rem]">
+                    <button onclick="switchLoginTab('student')" id="tab-student" class="py-3 text-sm font-bold rounded-2xl transition-all shadow-sm bg-white text-spt-primary">
+                        <i class="fas fa-user-graduate mr-2"></i>นักเรียน
+                    </button>
+                    <button onclick="switchLoginTab('admin')" id="tab-admin" class="py-3 text-sm font-bold rounded-2xl transition-all text-slate-400 hover:bg-white/50">
+                        <i class="fas fa-user-shield mr-2"></i>ผู้ดูแลระบบ
+                    </button>
+                </div>
+
+                <div class="p-8">
+                    <!-- Student Login Form -->
+                    <form id="form-login-student" class="space-y-6 animate-fade-in">
+                        <div class="text-center mb-6">
+                            <h2 class="text-2xl font-bold text-slate-800">ตรวจสอบผลสอบ</h2>
+                            <p class="text-slate-500 text-sm mt-1">กรอกเลขประจำตัวประชาชน 13 หลัก</p>
+                        </div>
+                        <div class="relative group">
+                            <i class="fas fa-id-card absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-spt-primary transition-colors"></i>
+                            <input type="text" id="student-id-input" maxlength="13" placeholder="เลขประจำตัวประชาชน" 
+                                class="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-spt-primary/30 focus:border-spt-primary transition-all text-lg tracking-wide placeholder-slate-400" required>
+                        </div>
+                        <button type="submit" class="w-full bg-gradient-to-r from-spt-primary to-spt-dark text-white font-bold py-4 rounded-2xl shadow-lg shadow-spt-primary/30 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            ตรวจสอบผลคะแนน
+                        </button>
+                    </form>
+
+                    <!-- Admin Login Form -->
+                    <form id="form-login-admin" class="space-y-6 hidden animate-fade-in">
+                        <div class="text-center mb-6">
+                            <h2 class="text-2xl font-bold text-slate-800">เข้าสู่ระบบผู้ดูแล</h2>
+                            <p class="text-slate-500 text-sm mt-1">จัดการโครงการและข้อมูลคะแนน</p>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="relative group">
+                                <i class="fas fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-spt-primary transition-colors"></i>
+                                <input type="email" id="admin-email" placeholder="อีเมล" 
+                                    class="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-spt-primary/30 focus:border-spt-primary transition-all" required>
+                            </div>
+                            <div class="relative group">
+                                <i class="fas fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-spt-primary transition-colors"></i>
+                                <input type="password" id="admin-password" placeholder="รหัสผ่าน" 
+                                    class="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-spt-primary/30 focus:border-spt-primary transition-all" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-slate-800 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-slate-900 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            เข้าสู่ระบบ
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Student Dashboard -->
+        <section id="page-student-dashboard" class="view-section hidden space-y-8 animate-fade-in">
+            <div class="text-center md:text-left mb-8">
+                <h1 class="text-3xl font-bold text-slate-800">ผลการสอบคัดเลือก</h1>
+                <p class="text-slate-500">ยินดีต้อนรับ, <span id="student-name-display" class="font-semibold text-spt-primary"></span></p>
+            </div>
+            
+            <div id="student-projects-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Project Cards will be injected here -->
+            </div>
+        </section>
+
+        <!-- 3. Admin Dashboard (Projects List) -->
+        <section id="page-admin-dashboard" class="view-section hidden animate-fade-in">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-slate-800">จัดการโครงการ</h1>
+                    <p class="text-slate-500">สร้างและจัดการข้อมูลการสอบ</p>
+                </div>
+                <button onclick="openCreateProjectModal()" class="bg-spt-primary hover:bg-spt-dark text-white px-6 py-3 rounded-2xl shadow-lg shadow-spt-primary/30 font-semibold transition-all flex items-center gap-2">
+                    <i class="fas fa-plus"></i> เพิ่มโครงการ
+                </button>
+            </div>
+
+            <div id="admin-projects-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Admin Project Cards -->
+            </div>
+        </section>
+
+        <!-- 4. Admin Project Detail -->
+        <section id="page-project-detail" class="view-section hidden animate-fade-in">
+            <div class="flex items-center gap-4 mb-6">
+                <button onclick="router.navigate('admin-dashboard')" class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 hover:bg-slate-50 text-slate-500">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1 id="detail-project-name" class="text-2xl font-bold text-slate-800">ชื่อโครงการ</h1>
+            </div>
+
+            <div class="bg-white rounded-[2rem] shadow-soft overflow-hidden min-h-[600px] flex flex-col">
+                <!-- Toolbar -->
+                <div class="border-b border-slate-100 p-4 bg-slate-50/50 flex flex-wrap gap-2 items-center justify-between">
+                    <div class="flex gap-2">
+                         <div class="relative">
+                            <input type="text" id="search-student" placeholder="ค้นหาชื่อ/เลขที่สอบ..." class="pl-9 pr-4 py-2 rounded-xl border-none bg-white shadow-sm focus:ring-2 focus:ring-spt-primary/20 w-64">
+                            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="toggleProjectVisibility()" id="btn-toggle-visibility" class="btn-tool bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+                            <i class="fas fa-eye mr-1"></i> แสดงผล
+                        </button>
+                        <button onclick="openAddStudentModal()" class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+                            <i class="fas fa-user-plus mr-1"></i> เพิ่ม นร.
+                        </button>
+                        <button onclick="document.getElementById('file-import-students').click()" class="bg-green-50 text-green-700 border border-green-100 px-4 py-2 rounded-xl text-sm font-medium hover:bg-green-100 transition-colors">
+                            <i class="fas fa-file-csv mr-1"></i> Import ชื่อ
+                        </button>
+                        <button onclick="document.getElementById('file-import-scores').click()" class="bg-blue-50 text-blue-700 border border-blue-100 px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-100 transition-colors">
+                            <i class="fas fa-table mr-1"></i> Import คะแนน
+                        </button>
+                        <button onclick="exportData()" class="bg-slate-800 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-700 transition-colors shadow-lg shadow-slate-800/20">
+                            <i class="fas fa-download mr-1"></i> Export
+                        </button>
+                        <button onclick="deleteProject()" class="bg-red-50 text-red-600 border border-red-100 px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden Inputs -->
+                <input type="file" id="file-import-students" accept=".csv" class="hidden" onchange="handleImportStudents(this)">
+                <input type="file" id="file-import-scores" accept=".csv" class="hidden" onchange="handleImportScores(this)">
+
+                <!-- Data Table -->
+                <div class="flex-grow overflow-auto relative">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-slate-50 sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                            <tr>
+                                <th class="px-6 py-4 rounded-tl-2xl">ลำดับ</th>
+                                <th class="px-6 py-4">เลขที่สอบ</th>
+                                <th class="px-6 py-4">ชื่อ-สกุล</th>
+                                <!-- Dynamic Subject Headers -->
+                                <th id="header-subjects-start" class="hidden"></th> 
+                                <th class="px-6 py-4 text-center bg-slate-100/50">รวม</th>
+                                <th class="px-6 py-4 rounded-tr-2xl text-center">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="project-students-table" class="divide-y divide-slate-100 text-sm">
+                            <!-- Rows injected via JS -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Stats Footer -->
+                <div class="p-4 border-t border-slate-100 bg-slate-50/50 flex gap-6 text-xs text-slate-500 font-medium overflow-x-auto no-scrollbar" id="project-stats-bar">
+                    <!-- Stats injected here -->
+                </div>
+            </div>
+            
+            <!-- Grid Entry Mode (Hidden by default, toggled via modal or simple view change) -->
+            <!-- Note: For simplicity, we use modal for single edit, and CSV for bulk. Table cells will be contentEditable. -->
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-auto py-8 text-center text-slate-400 text-sm font-medium">
+        <p>&copy; โรงเรียนสตรีพัทลุง | Satri Phatthalung School</p>
+    </footer>
+
+    <!-- Modals -->
+    <!-- Create Project Modal -->
+    <div id="modal-create-project" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[70] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-8 animate-fade-in">
+            <h2 class="text-2xl font-bold mb-6 text-slate-800">สร้างโครงการใหม่</h2>
+            <form id="form-create-project" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">ชื่อโครงการ</label>
+                    <input type="text" name="projectName" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-spt-primary/20 outline-none" required>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <label class="block text-sm font-semibold text-slate-700">รายวิชา</label>
+                        <button type="button" onclick="addSubjectField()" class="text-spt-primary text-sm font-bold hover:underline">+ เพิ่มวิชา</button>
+                    </div>
+                    <div id="subjects-container" class="space-y-3">
+                        <div class="grid grid-cols-12 gap-2 items-center subject-row">
+                            <input type="text" placeholder="ชื่อวิชา" class="col-span-5 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" required>
+                            <input type="number" placeholder="เต็ม" class="col-span-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" required>
+                            <input type="number" placeholder="Weight (1)" value="1" step="0.1" class="col-span-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" required>
+                            <button type="button" class="col-span-1 text-red-400 hover:text-red-600"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-4 flex gap-3">
+                    <button type="button" onclick="closeModal('modal-create-project')" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50">ยกเลิก</button>
+                    <button type="submit" class="flex-1 py-3 rounded-xl bg-spt-primary text-white font-bold hover:bg-spt-dark shadow-lg shadow-spt-primary/30">บันทึก</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDK Logic & App Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, writeBatch } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+        // --- Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBWJmndz8RpKxW2DwPbl6P--G6QhDTqlqA",
+            authDomain: "spt-score.firebaseapp.com",
+            projectId: "spt-score",
+            storageBucket: "spt-score.firebasestorage.app",
+            messagingSenderId: "159154369203",
+            appId: "1:159154369203:web:7cfb79bc3b65bb4d75b6c6",
+            measurementId: "G-ZH8KVVWWK0"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- State Management ---
+        const state = {
+            user: null, // 'admin' or { student data }
+            currentProject: null,
+            projects: [], // Cache projects
+            inactivityTimer: null,
+            timeoutMinutes: 5,
+            isAdmin: false
+        };
+
+        // --- Router ---
+        const router = {
+            navigate: (hash, params = null) => {
+                window.location.hash = hash;
+                if (params) state.routeParams = params;
+            },
+            handleRoute: async () => {
+                const hash = window.location.hash.replace('#', '') || 'login';
+                document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+                
+                // Route Guard
+                if (hash.startsWith('admin') && !state.isAdmin) {
+                    router.navigate('login');
+                    return;
+                }
+                
+                if (hash === 'login') {
+                    document.getElementById('page-login').classList.remove('hidden');
+                } else if (hash === 'student-dashboard') {
+                    if (!state.user || state.isAdmin) { router.navigate('login'); return; }
+                    document.getElementById('page-student-dashboard').classList.remove('hidden');
+                    renderStudentDashboard();
+                } else if (hash === 'admin-dashboard') {
+                    document.getElementById('page-admin-dashboard').classList.remove('hidden');
+                    loadAdminProjects();
+                } else if (hash === 'project-detail') {
+                    if (!state.currentProject) { router.navigate('admin-dashboard'); return; }
+                    document.getElementById('page-project-detail').classList.remove('hidden');
+                    renderProjectDetail();
+                }
+            }
+        };
+
+        window.addEventListener('hashchange', router.handleRoute);
+
+        // --- Inactivity Timer ---
+        function resetInactivityTimer() {
+            if (state.inactivityTimer) clearTimeout(state.inactivityTimer);
+            state.inactivityTimer = setTimeout(() => {
+                if (state.user || state.isAdmin) {
+                    Swal.fire({
+                        icon: 'info',
+                        title: 'หมดเวลาการใช้งาน',
+                        text: 'ระบบออกจากระบบอัตโนมัติเพื่อความปลอดภัย',
+                        timer: 3000,
+                        showConfirmButton: false
+                    }).then(() => handleLogout());
+                }
+            }, state.timeoutMinutes * 60 * 1000);
+        }
+        ['mousemove', 'keydown', 'click', 'scroll'].forEach(evt => window.addEventListener(evt, resetInactivityTimer));
+
+        // --- Auth Functions ---
+        window.handleLogout = async () => {
+            await signOut(auth);
+            state.user = null;
+            state.isAdmin = false;
+            state.currentProject = null;
+            document.getElementById('user-info').classList.add('hidden');
+            document.getElementById('btn-logout').classList.add('hidden');
+            router.navigate('login');
+        };
+
+        // Student Login (Simulation via Firestore Query)
+        async function loginStudent(citizenId) {
+            showLoading(true);
+            try {
+                // Anonymous auth needed to read DB if rules require auth
+                if (!auth.currentUser) await signInAnonymously(auth);
+
+                // Query all students with this citizenId across all projects
+                // Note: In a real app, you might want a dedicated 'users' collection. 
+                // Here we search within project subcollections or a global students collection.
+                // For this structure, let's use a root 'students' collection linked to projects.
+                
+                const q = query(collection(db, "students"), where("citizenId", "==", citizenId));
+                const querySnapshot = await getDocs(q);
+
+                if (querySnapshot.empty) {
+                    throw new Error("ไม่พบข้อมูลนักเรียนในระบบ");
+                }
+
+                const studentData = [];
+                querySnapshot.forEach(doc => {
+                    studentData.push({ id: doc.id, ...doc.data() });
+                });
+
+                state.user = { type: 'student', citizenId, data: studentData };
+                state.isAdmin = false;
+                
+                document.getElementById('student-name-display').innerText = `${studentData[0].prefix}${studentData[0].name} ${studentData[0].surname}`;
+                document.getElementById('user-info').innerText = `นักเรียน: ${citizenId}`;
+                document.getElementById('user-info').classList.remove('hidden');
+                document.getElementById('btn-logout').classList.remove('hidden');
+                
+                router.navigate('student-dashboard');
+
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // --- Admin Logic ---
+        async function loadAdminProjects() {
+            showLoading(true);
+            const container = document.getElementById('admin-projects-list');
+            container.innerHTML = '';
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "projects"));
+                state.projects = [];
+                querySnapshot.forEach(doc => {
+                    const proj = { id: doc.id, ...doc.data() };
+                    state.projects.push(proj);
+                    
+                    const card = document.createElement('div');
+                    card.className = "bg-white p-6 rounded-3xl shadow-card hover:shadow-soft transition-all cursor-pointer group border border-transparent hover:border-spt-secondary";
+                    card.onclick = () => {
+                        state.currentProject = proj;
+                        router.navigate('project-detail');
+                    };
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="h-12 w-12 rounded-2xl bg-spt-secondary flex items-center justify-center text-spt-primary text-xl font-bold group-hover:scale-110 transition-transform">
+                                <i class="fas fa-folder-open"></i>
+                            </div>
+                            <span class="text-xs font-semibold ${proj.isVisible ? 'text-green-500 bg-green-50' : 'text-slate-400 bg-slate-100'} px-2 py-1 rounded-lg">
+                                ${proj.isVisible ? 'เผยแพร่แล้ว' : 'ซ่อนอยู่'}
+                            </span>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800 mb-2">${proj.name}</h3>
+                        <p class="text-sm text-slate-500 mb-4">${proj.subjects.length} รายวิชา</p>
+                        <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                            <div class="bg-spt-primary h-full w-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) {
+                console.error(err);
+                Swal.fire('Error', 'โหลดข้อมูลไม่สำเร็จ', 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function createProject(name, subjects) {
+            showLoading(true);
+            try {
+                await addDoc(collection(db, "projects"), {
+                    name,
+                    subjects, // Array of {name, max, weight}
+                    isVisible: false,
+                    createdAt: new Date()
+                });
+                closeModal('modal-create-project');
+                loadAdminProjects();
+                Swal.fire('Success', 'สร้างโครงการเรียบร้อย', 'success');
+            } catch (err) {
+                Swal.fire('Error', err.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // --- Admin Project Detail Logic ---
+        let currentStudents = []; // Cache for current project
+
+        async function renderProjectDetail() {
+            const proj = state.currentProject;
+            document.getElementById('detail-project-name').innerText = proj.name;
+            document.getElementById('btn-toggle-visibility').innerHTML = `<i class="fas fa-eye${proj.isVisible ? '' : '-slash'} mr-1"></i> ${proj.isVisible ? 'ซ่อนผล' : 'แสดงผล'}`;
+
+            // Setup Table Headers
+            const headerRow = document.querySelector('thead tr');
+            // Reset headers (Keep first 3 and last 2)
+            const staticHeaders = headerRow.querySelectorAll('th:not(.dynamic-subject)');
+            // Need to reconstruct to handle dynamic subject columns efficiently
+            let html = `
+                <th class="px-6 py-4 rounded-tl-2xl w-16">ลำดับ</th>
+                <th class="px-6 py-4 w-32">เลขที่สอบ</th>
+                <th class="px-6 py-4 w-48">ชื่อ-สกุล</th>
+            `;
+            
+            proj.subjects.forEach((sub, idx) => {
+                html += `<th class="px-6 py-4 dynamic-subject text-center bg-slate-50/80">
+                    <div class="flex flex-col">
+                        <span>${sub.name}</span>
+                        <span class="text-[10px] text-slate-400">เต็ม ${sub.max}</span>
+                    </div>
+                </th>`;
+            });
+
+            html += `
+                <th class="px-6 py-4 text-center bg-spt-secondary/30 font-bold text-spt-primary">รวม</th>
+                <th class="px-6 py-4 rounded-tr-2xl text-center w-24">จัดการ</th>
+            `;
+            headerRow.innerHTML = html;
+
+            await loadProjectStudents(proj.id);
+        }
+
+        async function loadProjectStudents(projId) {
+            showLoading(true);
+            try {
+                const q = query(collection(db, "students"), where("projectId", "==", projId));
+                const snap = await getDocs(q);
+                currentStudents = [];
+                snap.forEach(doc => currentStudents.push({ id: doc.id, ...doc.data() }));
+
+                // Calculate Stats & Ranks
+                calculateStatsAndRanks();
+                renderStudentTable();
+                renderProjectStats();
+
+            } catch (err) {
+                console.error(err);
+                Swal.fire('Error', 'โหลดรายชื่อไม่สำเร็จ', 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function calculateStatsAndRanks() {
+            const proj = state.currentProject;
+            
+            // 1. Calculate Total for each student
+            currentStudents.forEach(stu => {
+                let total = 0;
+                let weightedTotal = 0; // If using weights for ranking logic
+                
+                proj.subjects.forEach(sub => {
+                    const score = parseFloat(stu.scores[sub.name] || 0);
+                    total += score;
+                });
+                stu.totalScore = parseFloat(total.toFixed(2));
+            });
+
+            // 2. Sort for Ranking
+            // Logic: Total Score -> (Tie Breaker: Subject defined in order)
+            currentStudents.sort((a, b) => {
+                if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+                // Add tie breaker logic here based on subjects order if score is equal
+                // For now simple total score sort
+                return 0;
+            });
+
+            // 3. Assign Ranks & Percentile
+            const count = currentStudents.length;
+            currentStudents.forEach((stu, index) => {
+                stu.rank = index + 1;
+                stu.percentile = ((count - stu.rank) / count) * 100; // Simplified
+            });
+        }
+
+        function renderStudentTable() {
+            const tbody = document.getElementById('project-students-table');
+            tbody.innerHTML = '';
+            const proj = state.currentProject;
+            const filter = document.getElementById('search-student').value.toLowerCase();
+
+            currentStudents.forEach((stu) => {
+                const fullName = `${stu.prefix}${stu.name} ${stu.surname}`;
+                if (filter && !fullName.toLowerCase().includes(filter) && !stu.examId.includes(filter)) return;
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition-colors group";
+                
+                let subjectCells = '';
+                proj.subjects.forEach(sub => {
+                    // ContentEditable for quick edit
+                    const score = stu.scores[sub.name] || 0;
+                    subjectCells += `<td class="px-6 py-4 text-center border-l border-slate-100 outline-none focus:bg-white focus:ring-2 focus:ring-spt-primary/20 transition-all cursor-text" 
+                        contenteditable="true" 
+                        onblur="updateScore('${stu.id}', '${sub.name}', this.innerText)">${score}</td>`;
+                });
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-mono text-slate-400 font-semibold">#${stu.rank}</td>
+                    <td class="px-6 py-4 font-mono text-slate-600">${stu.examId}</td>
+                    <td class="px-6 py-4 font-medium text-slate-800">
+                        ${fullName}
+                        <div class="text-[10px] text-slate-400">${stu.oldSchool || '-'}</div>
+                    </td>
+                    ${subjectCells}
+                    <td class="px-6 py-4 text-center font-bold text-spt-primary bg-spt-secondary/10">${stu.totalScore}</td>
+                    <td class="px-6 py-4 text-center">
+                        <button onclick="deleteStudent('${stu.id}')" class="text-slate-300 hover:text-red-500 transition-colors">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderProjectStats() {
+            if(currentStudents.length === 0) return;
+            const container = document.getElementById('project-stats-bar');
+            const totals = currentStudents.map(s => s.totalScore);
+            const max = Math.max(...totals);
+            const min = Math.min(...totals);
+            const avg = (totals.reduce((a, b) => a + b, 0) / totals.length).toFixed(2);
+            
+            container.innerHTML = `
+                <div class="flex items-center gap-2 px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <span class="text-slate-400">จำนวน</span> <span class="text-slate-800 font-bold">${currentStudents.length}</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <span class="text-slate-400">เฉลี่ย</span> <span class="text-blue-600 font-bold">${avg}</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <span class="text-slate-400">สูงสุด</span> <span class="text-green-600 font-bold">${max}</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <span class="text-slate-400">ต่ำสุด</span> <span class="text-red-600 font-bold">${min}</span>
+                </div>
+            `;
+        }
+
+        // --- Student Dashboard Render ---
+        async function renderStudentDashboard() {
+            const container = document.getElementById('student-projects-container');
+            container.innerHTML = '';
+            
+            for (const record of state.user.data) {
+                // Fetch project details for this record
+                const projRef = doc(db, "projects", record.projectId);
+                const projSnap = await getDoc(projRef);
+                
+                if (!projSnap.exists()) continue;
+                const proj = projSnap.data();
+                
+                // If project is hidden, skip
+                if (!proj.isVisible) continue;
+
+                // Need stats to calculate percentile/rank relative to others
+                // NOTE: This could be optimized by storing stats in project doc. 
+                // For now, we query. 
+                const allStudentsQ = query(collection(db, "students"), where("projectId", "==", record.projectId));
+                const allSnap = await getDocs(allStudentsQ);
+                const allScores = [];
+                allSnap.forEach(d => {
+                    const dData = d.data();
+                    let total = 0;
+                    proj.subjects.forEach(s => total += parseFloat(dData.scores[s.name]||0));
+                    allScores.push(total);
+                });
+                
+                allScores.sort((a,b) => b-a);
+                
+                let myTotal = 0;
+                const subjectDetails = proj.subjects.map(sub => {
+                    const score = parseFloat(record.scores[sub.name] || 0);
+                    myTotal += score;
+                    // Calculate subject specific stats if needed
+                    return `
+                        <div class="flex justify-between items-center text-sm py-2 border-b border-slate-100 last:border-0">
+                            <span class="text-slate-600 w-1/3">${sub.name}</span>
+                            <div class="w-1/3 flex flex-col items-center">
+                                <span class="font-bold text-slate-800">${score}</span>
+                                <span class="text-[10px] text-slate-400">เต็ม ${sub.max}</span>
+                            </div>
+                             <div class="w-1/3 text-right">
+                                <span class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md">${((score/sub.max)*100).toFixed(0)}%</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                const myRank = allScores.indexOf(myTotal) + 1;
+                const maxScore = allScores[0];
+                const totalStudents = allScores.length;
+
+                const card = document.createElement('div');
+                card.className = "bg-white rounded-[2rem] shadow-soft overflow-hidden animate-fade-in";
+                card.innerHTML = `
+                    <div class="bg-spt-primary p-6 text-white relative overflow-hidden">
+                        <div class="absolute -right-6 -top-6 w-24 h-24 bg-white/20 rounded-full blur-2xl"></div>
+                        <h3 class="text-xl font-bold relative z-10">${proj.name}</h3>
+                        <p class="text-spt-secondary text-sm relative z-10 opacity-90">เลขที่สอบ: ${record.examId}</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-2 gap-4 mb-6">
+                            <div class="bg-slate-50 p-4 rounded-2xl text-center border border-slate-100">
+                                <span class="text-xs text-slate-400 block uppercase tracking-wider">คะแนนรวม</span>
+                                <span class="text-3xl font-bold text-spt-primary">${myTotal.toFixed(2)}</span>
+                            </div>
+                            <div class="bg-slate-50 p-4 rounded-2xl text-center border border-slate-100">
+                                <span class="text-xs text-slate-400 block uppercase tracking-wider">ลำดับที่</span>
+                                <span class="text-3xl font-bold text-slate-800">#${myRank}</span>
+                                <span class="text-[10px] text-slate-400">จาก ${totalStudents}</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm mb-4">
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">คะแนนรายวิชา</h4>
+                            ${subjectDetails}
+                        </div>
+
+                         <div class="flex justify-between text-xs text-slate-400 font-medium px-2">
+                             <span>สูงสุด: ${maxScore}</span>
+                             <span>Percentile: ${(((totalStudents - myRank)/totalStudents)*100).toFixed(2)}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+        }
+
+        // --- Data Manipulation Helpers ---
+
+        window.updateScore = async (docId, subject, newVal) => {
+            if(isNaN(newVal)) return;
+            const val = parseFloat(newVal);
+            
+            // Optimistic update
+            const stu = currentStudents.find(s => s.id === docId);
+            if(stu) {
+                stu.scores[subject] = val;
+                calculateStatsAndRanks();
+                renderProjectStats();
+                // Rerender specific row cells (Rank/Total) only? For now simplified re-render
+                // Ideally, don't re-render whole table to keep focus
+                const row = document.activeElement.closest('tr');
+                if(row) {
+                    row.querySelector('td:nth-last-child(2)').innerText = stu.totalScore;
+                    row.querySelector('td:first-child').innerText = "#" + stu.rank;
+                }
+            }
+
+            try {
+                const docRef = doc(db, "students", docId);
+                await updateDoc(docRef, { [`scores.${subject}`]: val });
+            } catch(e) { console.error(e); }
+        };
+
+        window.toggleProjectVisibility = async () => {
+            const proj = state.currentProject;
+            proj.isVisible = !proj.isVisible;
+            await updateDoc(doc(db, "projects", proj.id), { isVisible: proj.isVisible });
+            renderProjectDetail();
+        };
+
+        window.deleteStudent = async (id) => {
+            if(confirm('ยืนยันลบข้อมูลนักเรียน?')) {
+                await deleteDoc(doc(db, "students", id));
+                loadProjectStudents(state.currentProject.id);
+            }
+        };
+
+        window.deleteProject = async () => {
+             if(confirm('ยืนยันลบโครงการและข้อมูลทั้งหมด?')) {
+                // Delete project
+                await deleteDoc(doc(db, "projects", state.currentProject.id));
+                // Delete students (batch in real app, here simple loop)
+                currentStudents.forEach(async s => await deleteDoc(doc(db, "students", s.id)));
+                router.navigate('admin-dashboard');
+             }
+        };
+
+        // --- Import/Export ---
+
+        window.handleImportStudents = (input) => {
+            const file = input.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const text = e.target.result;
+                const rows = text.split('\n').slice(1); // Skip header
+                const batch = writeBatch(db);
+                let count = 0;
+                
+                rows.forEach(row => {
+                    const cols = row.split(',').map(c => c.trim());
+                    if(cols.length < 5) return; // Basic validation
+                    // Format: citizenId, examId, prefix, name, surname, oldSchool
+                    const newRef = doc(collection(db, "students"));
+                    batch.set(newRef, {
+                        projectId: state.currentProject.id,
+                        citizenId: cols[0],
+                        examId: cols[1],
+                        prefix: cols[2],
+                        name: cols[3],
+                        surname: cols[4],
+                        oldSchool: cols[5] || '',
+                        scores: {} // Empty scores
+                    });
+                    count++;
+                });
+
+                await batch.commit();
+                Swal.fire('Success', `นำเข้า ${count} รายชื่อเรียบร้อย`, 'success');
+                loadProjectStudents(state.currentProject.id);
+            };
+            reader.readAsText(file);
+            input.value = '';
+        };
+
+        window.handleImportScores = (input) => {
+            const file = input.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const text = e.target.result;
+                const rows = text.split('\n').slice(1);
+                // Header: examId, subject1, subject2...
+                const headers = text.split('\n')[0].split(',').map(h => h.trim());
+                
+                // Map examId to docId locally
+                const examIdMap = {};
+                currentStudents.forEach(s => examIdMap[s.examId] = s.id);
+
+                const batch = writeBatch(db);
+                let count = 0;
+
+                rows.forEach(row => {
+                    const cols = row.split(',').map(c => c.trim());
+                    const examId = cols[0];
+                    if(!examIdMap[examId]) return;
+
+                    const scoresUpdate = {};
+                    // Iterate dynamic columns
+                    for(let i=1; i<cols.length; i++) {
+                        const subjectName = headers[i];
+                        if(subjectName && cols[i]) {
+                            scoresUpdate[`scores.${subjectName}`] = parseFloat(cols[i]);
+                        }
+                    }
+                    
+                    batch.update(doc(db, "students", examIdMap[examId]), scoresUpdate);
+                    count++;
+                });
+                
+                await batch.commit();
+                Swal.fire('Success', `อัปเดตคะแนน ${count} คนเรียบร้อย`, 'success');
+                loadProjectStudents(state.currentProject.id);
+            };
+            reader.readAsText(file);
+            input.value = '';
+        };
+        
+        window.exportData = () => {
+            const proj = state.currentProject;
+            // Build data array
+            const data = currentStudents.map(s => {
+                const row = {
+                    'ลำดับ': s.rank,
+                    'เลขที่สอบ': s.examId,
+                    'ชื่อ-สกุล': `${s.prefix}${s.name} ${s.surname}`,
+                    'โรงเรียนเดิม': s.oldSchool
+                };
+                proj.subjects.forEach(sub => {
+                    row[sub.name] = s.scores[sub.name] || 0;
+                });
+                row['คะแนนรวม'] = s.totalScore;
+                return row;
+            });
+
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Scores");
+            XLSX.writeFile(wb, `${proj.name}_scores.csv`);
+        };
+
+        // --- UI Interactions ---
+        window.switchLoginTab = (type) => {
+            document.getElementById('tab-student').className = type === 'student' ? 
+                "py-3 text-sm font-bold rounded-2xl transition-all shadow-sm bg-white text-spt-primary" : 
+                "py-3 text-sm font-bold rounded-2xl transition-all text-slate-400 hover:bg-white/50";
+            
+            document.getElementById('tab-admin').className = type === 'admin' ? 
+                "py-3 text-sm font-bold rounded-2xl transition-all shadow-sm bg-white text-spt-primary" : 
+                "py-3 text-sm font-bold rounded-2xl transition-all text-slate-400 hover:bg-white/50";
+
+            if (type === 'student') {
+                document.getElementById('form-login-student').classList.remove('hidden');
+                document.getElementById('form-login-admin').classList.add('hidden');
+            } else {
+                document.getElementById('form-login-student').classList.add('hidden');
+                document.getElementById('form-login-admin').classList.remove('hidden');
+            }
+        };
+
+        window.openCreateProjectModal = () => document.getElementById('modal-create-project').classList.remove('hidden');
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        window.addSubjectField = () => {
+            const div = document.createElement('div');
+            div.className = "grid grid-cols-12 gap-2 items-center subject-row";
+            div.innerHTML = `
+                <input type="text" placeholder="ชื่อวิชา" class="col-span-5 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" required>
+                <input type="number" placeholder="เต็ม" class="col-span-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" required>
+                <input type="number" placeholder="Weight" value="1" step="0.1" class="col-span-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" required>
+                <button type="button" onclick="this.parentElement.remove()" class="col-span-1 text-red-400 hover:text-red-600"><i class="fas fa-times"></i></button>
+            `;
+            document.getElementById('subjects-container').appendChild(div);
+        };
+
+        // --- Event Listeners ---
+        
+        document.getElementById('form-login-student').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const id = document.getElementById('student-id-input').value;
+            if(id.length === 13) loginStudent(id);
+            else Swal.fire('แจ้งเตือน', 'กรุณากรอกเลข 13 หลักให้ถูกต้อง', 'warning');
+        });
+
+        document.getElementById('form-login-admin').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const email = document.getElementById('admin-email').value;
+            const pass = document.getElementById('admin-password').value;
+            showLoading(true);
+            signInWithEmailAndPassword(auth, email, pass)
+                .then(() => {
+                    // Auth state change will handle routing
+                })
+                .catch(err => {
+                    Swal.fire('เข้าสู่ระบบไม่สำเร็จ', err.message, 'error');
+                    showLoading(false);
+                });
+        });
+
+        document.getElementById('btn-logout').addEventListener('click', handleLogout);
+
+        document.getElementById('form-create-project').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const name = formData.get('projectName');
+            const subjects = [];
+            
+            document.querySelectorAll('.subject-row').forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                subjects.push({
+                    name: inputs[0].value,
+                    max: parseFloat(inputs[1].value),
+                    weight: parseFloat(inputs[2].value)
+                });
+            });
+
+            createProject(name, subjects);
+        });
+        
+        document.getElementById('search-student').addEventListener('keyup', renderStudentTable);
+
+        // --- Init ---
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                if(!user.isAnonymous) {
+                    state.user = user;
+                    state.isAdmin = true;
+                    document.getElementById('user-info').innerText = 'Admin Mode';
+                    document.getElementById('user-info').classList.remove('hidden');
+                    document.getElementById('btn-logout').classList.remove('hidden');
+                    router.navigate('admin-dashboard');
+                } else {
+                    // Anonymous user usually means student viewing waiting for ID input
+                    // We don't auto-navigate here, handled by manual ID input
+                }
+            } else {
+                router.navigate('login');
+            }
+            resetInactivityTimer();
+        });
+
+        function showLoading(show) {
+            const el = document.getElementById('loading');
+            if(show) el.classList.remove('hidden');
+            else el.classList.add('hidden');
+        }
+
+        // Initialize Router
+        router.handleRoute();
+
+    </script>
+</body>
+</html>
+
