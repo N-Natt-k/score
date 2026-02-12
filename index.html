@@ -512,33 +512,165 @@
             }
         };
         // ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
-function handleHashChange() {
-    // ตัดเครื่องหมาย # ออก ถ้าไม่มีให้ default เป็น 'login' หรือหน้าแรก
-    const page = window.location.hash.slice(1) || 'login'; 
-    
-    // เรียกใช้ Logic เดิมในการสลับหน้า
+// --- 1. NEW ROUTER SYSTEM ---
+// เก็บ ID นักเรียนลงเครื่องเพื่อให้รีเฟรชแล้วยังจำได้
+const saveStudentSession = (id) => localStorage.setItem('spt_student_id', id);
+const getStudentSession = () => localStorage.getItem('spt_student_id');
+const clearStudentSession = () => localStorage.removeItem('spt_student_id');
+
+// ตัวจัดการ Routing
+async function handleHashChange() {
+    const hash = window.location.hash.replace('#', '');
+    const parts = hash.split('/');
+    const route = parts[0] || 'login'; // ถ้าไม่มี hash ให้ไป login
+
+    // ซ่อนทุกหน้าก่อน
     document.querySelectorAll('.view-section').forEach(el => {
         el.classList.add('hidden');
         el.classList.remove('fade-in');
     });
+
+    // Loading show
+    const loader = document.getElementById('loading');
     
-    const target = document.getElementById(`page-${page}`);
-    if (target) {
+    try {
+        if (route === 'login') {
+            showPage('page-login');
+        } 
+        else if (route === 'dashboard') {
+            // หน้าหลักนักเรียน: ตรวจสอบ session ก่อน
+            const studentId = getStudentSession();
+            if (!studentId) return window.location.hash = 'login';
+            
+            // โหลดข้อมูลนักเรียน
+            if (state.myRecords.length === 0) {
+                loader.classList.remove('hidden');
+                await fetchStudentData(studentId);
+            }
+            showPage('page-student');
+        } 
+        else if (route === 'student-result') {
+            // หน้าผลสอบ: #student-result/ProjectID
+            const studentId = getStudentSession();
+            const projectId = parts[1];
+            
+            if (!studentId) return window.location.hash = 'login';
+            if (!projectId) return window.location.hash = 'dashboard';
+
+            loader.classList.remove('hidden');
+            
+            // 1. โหลดข้อมูลโปรเจกต์ (เพื่อเอาน้ำหนักคะแนน)
+            const projDoc = await getDoc(doc(db, 'projects', projectId));
+            if (!projDoc.exists()) throw new Error('ไม่พบโครงการ');
+            const projectData = { id: projDoc.id, ...projDoc.data() };
+
+            // 2. โหลดข้อมูลนักเรียนของโปรเจกต์นี้
+            const q = query(collection(db, 'students'), 
+                where('citizenId', '==', studentId), 
+                where('projectId', '==', projectId));
+            const snap = await getDocs(q);
+            
+            if (snap.empty) throw new Error('ไม่พบผลการเรียน');
+            const studentRec = { id: snap.docs[0].id, ...snap.docs[0].data() };
+
+            // 3. แสดงผล (เรียกใช้ฟังก์ชันเดิมของคุณ viewResultDetail แต่ปรับให้ไม่เปลี่ยนหน้าเอง)
+            await renderResultDetail(studentRec, projectData); 
+            showPage('page-student-result');
+        }
+        else if (route === 'admin') {
+            // ตรวจสอบ Admin Auth
+            if (!state.isAdmin) return; // รอ onAuthStateChanged จัดการ
+            showPage('page-admin');
+        }
+        else if (route === 'detail') {
+            // หน้าแอดมินดูโครงการ: #detail/ProjectID/viewMode
+            if (!state.isAdmin) return;
+            const projectId = parts[1];
+            const viewMode = parts[2] || 'list'; // list หรือ ranking
+
+            loader.classList.remove('hidden');
+            
+            // โหลดข้อมูลถ้ายังไม่มี
+            if (!state.currentProject || state.currentProject.id !== projectId) {
+                await loadProjectFull(projectId);
+            }
+            
+            // สลับโหมด list/ranking ตาม URL
+            if (viewMode === 'ranking') {
+                document.getElementById('btn-view-ranking').click(); // ใช้ Click เพื่อ trigger UI
+            } else {
+                document.getElementById('btn-view-list').click();
+            }
+            
+            showPage('page-detail');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('ข้อผิดพลาด', err.message, 'error');
+        window.location.hash = 'login';
+    } finally {
+        loader.classList.add('hidden');
+    }
+}
+
+// ฟังก์ชันช่วยแสดงหน้า (แทน window.router.navigate เดิม)
+function showPage(pageId) {
+    const target = document.getElementById(pageId);
+    if(target) {
         target.classList.remove('hidden');
         target.classList.add('fade-in');
-        
-        [span_2](start_span)// จัดการเรื่องปุ่ม Logout หรือการแสดงชื่อตาม Logic เดิม[span_2](end_span)
-        if(page === 'login') {
+        // จัดการปุ่ม Logout
+        if(pageId === 'page-login') {
             document.getElementById('user-display').classList.add('hidden');
             document.getElementById('btn-logout').classList.add('hidden');
         } else {
-            // อาจต้องเช็ค state.user เพิ่มเติมเพื่อความปลอดภัย
             document.getElementById('btn-logout').classList.remove('hidden');
         }
     }
 }
 
-// ฟังเหตุการณ์ hashchange และ load (เมื่อเปิดเว็บครั้งแรก)
+// ฟังก์ชันโหลดข้อมูลนักเรียน (แยกออกมาเพื่อใช้ซ้ำ)
+async function fetchStudentData(id) {
+    const q = query(collection(db, 'students'), where('citizenId', '==', id));
+    const snaps = await getDocs(q);
+    const records = [];
+    snaps.forEach(doc => records.push({id: doc.id, ...doc.data()}));
+    state.myRecords = records;
+    
+    if(records.length > 0) {
+        const s = records[0];
+        document.getElementById('user-display').querySelector('span').innerText = `${s.prefix}${s.name}`;
+        document.getElementById('user-display').classList.remove('hidden');
+        renderStudentProjectList(records);
+    }
+}
+
+// ฟังก์ชันโหลดข้อมูล Project สำหรับ Admin (แยกออกมา)
+async function loadProjectFull(id) {
+    const docSnap = await getDoc(doc(db, 'projects', id));
+    const data = docSnap.data();
+    state.currentProject = { id, ...data };
+    state.editMode = false;
+    state.currentPage = 1;
+    
+    // อัปเดต UI Header
+    document.getElementById('detail-title').innerText = data.name;
+    document.getElementById('detail-year').innerText = data.academicYear || '2568';
+    document.getElementById('detail-subtitle').innerText = `${data.subjects.length} รายวิชา`;
+    updateVisibilityButtonUI(data.isVisible);
+    
+    // สร้าง Header ตาราง
+    const headerRow = document.querySelector('thead tr');
+    headerRow.innerHTML = `<th class="px-6 py-4 w-16 text-center border-b border-slate-200">#</th><th class="px-6 py-4 border-b border-slate-200">เลขที่สอบ</th><th class="px-6 py-4 border-b border-slate-200">ชื่อ-สกุล</th>`;
+    data.subjects.forEach(s => {
+        headerRow.innerHTML += `<th class="px-4 py-4 text-center bg-slate-50/50 border-b border-slate-200"><div class="flex flex-col items-center"><span class="text-xs font-bold text-slate-700">${s.name}</span><span class="text-[10px] text-slate-400">เต็ม ${s.max}</span></div></th>`;
+    });
+    headerRow.innerHTML += `<th class="px-6 py-4 text-center border-b border-slate-200">รวม</th><th class="px-6 py-4 text-center border-b border-slate-200">ลบ</th>`;
+    
+    await loadStudents(id);
+}
+
+// --- เริ่มการทำงาน Router ---
 window.addEventListener('hashchange', handleHashChange);
 window.addEventListener('load', handleHashChange);
 
@@ -612,27 +744,26 @@ window.addEventListener('load', handleHashChange);
         });
 
         document.getElementById('form-student').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const id = document.getElementById('login-id').value;
-            if(id.length !== 13) return Swal.fire({icon: 'warning', title: 'ข้อมูลไม่ถูกต้อง', text: 'กรุณากรอกเลขบัตรประชาชน 13 หลัก'});
-            document.getElementById('loading').classList.remove('hidden');
-            try {
-               // if(!auth.currentUser) await signInAnonymously(auth);
-                const q = query(collection(db, 'students'), where('citizenId', '==', id));
-                const snaps = await getDocs(q);
-                if(snaps.empty) throw new Error('ไม่พบข้อมูลในระบบ');
-                const records = [];
-                snaps.forEach(doc => records.push({id: doc.id, ...doc.data()}));
-                state.myRecords = records;
-                await renderStudentProjectList(records);
-                const s = records[0];
-                document.getElementById('user-display').querySelector('span').innerText = `${s.prefix}${s.name}`;
-                document.getElementById('user-display').classList.remove('hidden');
-                window.router.navigate('student');
-            } catch (err) {
-                Swal.fire({icon: 'error', title: 'ไม่พบข้อมูล', text: 'กรุณาตรวจสอบเลขประจำตัวประชาชนอีกครั้ง'});
-            } finally { document.getElementById('loading').classList.add('hidden'); }
-        });
+    e.preventDefault();
+    const id = document.getElementById('login-id').value;
+    if(id.length !== 13) return Swal.fire({icon: 'warning', title: 'ข้อมูลไม่ถูกต้อง', text: 'กรุณากรอกเลขบัตรประชาชน 13 หลัก'});
+    
+    document.getElementById('loading').classList.remove('hidden');
+    try {
+        await fetchStudentData(id); // เรียกใช้ฟังก์ชันที่เราแยกไว้
+        if (state.myRecords.length === 0) throw new Error('ไม่พบข้อมูลในระบบ');
+        
+        saveStudentSession(id); // <--- บรรทัดสำคัญ: บันทึก Session
+        window.location.hash = 'dashboard'; // เปลี่ยน URL เป็น hash
+        
+    } catch (err) {
+        Swal.fire({icon: 'error', title: 'ไม่พบข้อมูล', text: 'กรุณาตรวจสอบเลขประจำตัวประชาชนอีกครั้ง'});
+    } finally {
+        document.getElementById('loading').classList.add('hidden');
+    }
+});
+
+
 
         document.getElementById('form-admin').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -647,14 +778,27 @@ window.addEventListener('load', handleHashChange);
             }
         });
 
-                document.getElementById('btn-logout').addEventListener('click',()=>{CustomSwal.fire({title:'ออกจากระบบ?',icon:'question',showCancelButton:true,confirmButtonText:'ยืนยัน',cancelButtonText:'ยกเลิก'}).then((r)=>{if(r.isConfirmed)if (auth.currentUser) {
-                // 1. กรณีแอดมิน: สั่ง Logout และไปหน้า Login
-                signOut(auth)
-            } else {
-                // 2. กรณีนักเรียน: สั่งรีเฟรชหน้าจอ เพื่อเคลียร์ค่าและกลับหน้าค้นหาทันที
-                window.location.reload(); 
-                // หรือใช้ window.router.navigate('/'); ถ้าไม่อยากรีโหลดทั้งหน้า
-            }});});
+                
+// แก้ไขปุ่ม Logout
+document.getElementById('btn-logout').addEventListener('click', () => {
+    Swal.fire({
+        title: 'ยืนยันการออก?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'ออกจากระบบ',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            auth.signOut().then(() => {
+                clearStudentSession(); // ลบ Session นักเรียน
+                state.user = null;
+                state.isAdmin = false;
+                window.location.hash = 'login';
+                window.location.reload(); // รีโหลดเพื่อเคลียร์ค่าต่างๆ
+            });
+        }
+    });
+});
 
         // --- 3. STUDENT VIEW ---
         async function renderStudentProjectList(records) {
