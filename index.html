@@ -485,6 +485,7 @@
         // --- 1. ROUTER & GLOBAL FUNCTIONS ---
         window.router = {
             navigate: (page) => {
+                window.location.hash = page; 
                 document.querySelectorAll('.view-section').forEach(el => {
                     el.classList.add('hidden');
                     el.classList.remove('fade-in');
@@ -510,6 +511,37 @@
                 window.router.navigate('login');
             }
         };
+        // ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
+function handleHashChange() {
+    // ตัดเครื่องหมาย # ออก ถ้าไม่มีให้ default เป็น 'login' หรือหน้าแรก
+    const page = window.location.hash.slice(1) || 'login'; 
+    
+    // เรียกใช้ Logic เดิมในการสลับหน้า
+    document.querySelectorAll('.view-section').forEach(el => {
+        el.classList.add('hidden');
+        el.classList.remove('fade-in');
+    });
+    
+    const target = document.getElementById(`page-${page}`);
+    if (target) {
+        target.classList.remove('hidden');
+        target.classList.add('fade-in');
+        
+        [span_2](start_span)// จัดการเรื่องปุ่ม Logout หรือการแสดงชื่อตาม Logic เดิม[span_2](end_span)
+        if(page === 'login') {
+            document.getElementById('user-display').classList.add('hidden');
+            document.getElementById('btn-logout').classList.add('hidden');
+        } else {
+            // อาจต้องเช็ค state.user เพิ่มเติมเพื่อความปลอดภัย
+            document.getElementById('btn-logout').classList.remove('hidden');
+        }
+    }
+}
+
+// ฟังเหตุการณ์ hashchange และ load (เมื่อเปิดเว็บครั้งแรก)
+window.addEventListener('hashchange', handleHashChange);
+window.addEventListener('load', handleHashChange);
+
 
         window.switchTab = (tab) => {
             const btnStudent = document.getElementById('tab-student');
