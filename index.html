@@ -441,491 +441,457 @@
     </div>
 
     <!-- Firebase Logic -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
-        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, writeBatch, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, getDoc, doc, updateDoc, deleteDoc, query, where, writeBatch, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
-        // CONFIG
-        const firebaseConfig = {
-            apiKey: "AIzaSyBWJmndz8RpKxW2DwPbl6P--G6QhDTqlqA",
-            authDomain: "spt-score.firebaseapp.com",
-            projectId: "spt-score",
-            storageBucket: "spt-score.firebasestorage.app",
-            messagingSenderId: "159154369203",
-            appId: "1:159154369203:web:7cfb79bc3b65bb4d75b6c6",
-            measurementId: "G-ZH8KVVWWK0"
-        };
+    // --- CONFIG ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyBWJmndz8RpKxW2DwPbl6P--G6QhDTqlqA",
+        authDomain: "spt-score.firebaseapp.com",
+        projectId: "spt-score",
+        storageBucket: "spt-score.firebasestorage.app",
+        messagingSenderId: "159154369203",
+        appId: "1:159154369203:web:7cfb79bc3b65bb4d75b6c6",
+        measurementId: "G-ZH8KVVWWK0"
+    };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
 
-        // GLOBAL STATE
-        const state = {
-            user: null,
-            isAdmin: false,
-            currentProject: null,
-            studentsCache: [],
-            editMode: false,
-            currentPage: 1,
-            rowsPerPage: 40,
-            showAll: false,
-            myRecords: []
-        };
-        const CustomSwal = Swal.mixin({
-            customClass: {
-                popup: 'rounded-[20px] font-sans',
-                confirmButton: 'bg-spt-primary text-white px-6 py-2.5 rounded-xl font-bold shadow-lg hover:bg-spt-dark',
-                cancelButton: 'bg-slate-100 text-slate-500 px-6 py-2.5 rounded-xl font-bold hover:bg-slate-200'
-            },
-            buttonsStyling: false
+    // --- GLOBAL STATE ---
+    const state = {
+        user: null,
+        isAdmin: false,
+        currentProject: null,
+        studentsCache: [],
+        editMode: false,
+        currentPage: 1,
+        rowsPerPage: 40,
+        showAll: false,
+        projectView: 'list',
+        studentId: localStorage.getItem('spt_student_id') || null // จำเลขประจำตัวนักเรียน
+    };
+
+    const CustomSwal = Swal.mixin({
+        customClass: {
+            popup: 'rounded-[20px] font-sans',
+            confirmButton: 'bg-spt-primary text-white px-6 py-2.5 rounded-xl font-bold shadow-lg hover:bg-spt-dark',
+            cancelButton: 'bg-slate-100 text-slate-500 px-6 py-2.5 rounded-xl font-bold hover:bg-slate-200'
+        },
+        buttonsStyling: false
+    });
+
+    // --- 1. ROUTER SYSTEM (NEW) ---
+    window.router = {
+        navigate: (path) => {
+            window.location.hash = path;
+        }
+    };
+
+    // ฟังก์ชันจัดการ URL Hash
+    async function handleHashChange() {
+        const hash = window.location.hash.replace('#', '');
+        const parts = hash.split('/');
+        const page = parts[0] || 'login'; // ถ้าไม่มี hash ให้ไป login
+
+        // ซ่อนทุกหน้าก่อน
+        document.querySelectorAll('.view-section').forEach(el => {
+            el.classList.add('hidden');
+            el.classList.remove('fade-in');
         });
 
-        // --- 1. ROUTER & GLOBAL FUNCTIONS ---
-        window.router = {
-            navigate: (page) => {
-                window.location.hash = page; 
-                document.querySelectorAll('.view-section').forEach(el => {
-                    el.classList.add('hidden');
-                    el.classList.remove('fade-in');
-                });
-                const target = document.getElementById(`page-${page}`);
-                target.classList.remove('hidden');
-                void target.offsetWidth;
-                target.classList.add('fade-in');
-                
-                if(page === 'login') {
-                    document.getElementById('user-display').classList.add('hidden');
-                    document.getElementById('btn-logout').classList.add('hidden');
-                } else {
-                    document.getElementById('btn-logout').classList.remove('hidden');
+        switch (page) {
+            case 'login':
+                document.getElementById('page-login').classList.remove('hidden');
+                // ถ้ามี studentId ค้างอยู่ ให้เด้งไป dashboard เลย
+                if (state.studentId) {
+                    window.router.navigate('dashboard');
                 }
-            }
-        };
+                break;
 
-        window.goHome = () => {
-            if(state.user) {
-                window.router.navigate(state.isAdmin ? 'admin' : 'student');
-            } else {
-                window.router.navigate('login');
-            }
-        };
-        // ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
-function handleHashChange() {
-    // ตัดเครื่องหมาย # ออก ถ้าไม่มีให้ default เป็น 'login' หรือหน้าแรก
-    const page = window.location.hash.slice(1) || 'login'; 
-    
-    // เรียกใช้ Logic เดิมในการสลับหน้า
-    document.querySelectorAll('.view-section').forEach(el => {
-        el.classList.add('hidden');
-        el.classList.remove('fade-in');
-    });
-    
-    const target = document.getElementById(`page-${page}`);
-    if (target) {
-        target.classList.remove('hidden');
-        target.classList.add('fade-in');
-        
-        [span_2](start_span)// จัดการเรื่องปุ่ม Logout หรือการแสดงชื่อตาม Logic เดิม[span_2](end_span)
-        if(page === 'login') {
-            document.getElementById('user-display').classList.add('hidden');
-            document.getElementById('btn-logout').classList.add('hidden');
-        } else {
-            // อาจต้องเช็ค state.user เพิ่มเติมเพื่อความปลอดภัย
-            document.getElementById('btn-logout').classList.remove('hidden');
+            case 'dashboard': // หน้านักเรียน
+                if (!state.studentId) {
+                    window.router.navigate('login');
+                    return;
+                }
+                document.getElementById('page-student').classList.remove('hidden');
+                document.getElementById('user-display').classList.remove('hidden');
+                document.getElementById('user-display').querySelector('span').innerText = `ID: ${state.studentId}`;
+                document.getElementById('btn-logout').classList.remove('hidden');
+                loadStudentProjects(); // โหลดโครงการสอบ
+                break;
+
+            case 'student-result': // หน้าผลสอบ: #student-result/PROJECT_ID
+                if (!state.studentId) {
+                    window.router.navigate('login');
+                    return;
+                }
+                const projId = parts[1];
+                if (projId) {
+                    document.getElementById('page-student-result').classList.remove('hidden');
+                    await showStudentResult(projId);
+                } else {
+                    window.router.navigate('dashboard');
+                }
+                break;
+
+            case 'admin': // หน้าแอดมิน
+                if (!state.user) {
+                    window.router.navigate('login');
+                    return;
+                }
+                document.getElementById('page-admin').classList.remove('hidden');
+                loadAdminProjects();
+                break;
+
+            case 'detail': // หน้าจัดการโครงการ: #detail/PROJECT_ID/VIEW_MODE
+                if (!state.user) {
+                    window.router.navigate('login');
+                    return;
+                }
+                const detailId = parts[1];
+                const viewMode = parts[2] || 'list';
+                
+                document.getElementById('page-detail').classList.remove('hidden');
+                
+                // โหลดข้อมูลโครงการ (ถ้ายังไม่มี หรือเปลี่ยนโครงการ)
+                if (!state.currentProject || state.currentProject.id !== detailId) {
+                    await openProjectDetail(detailId, false); // false = ไม่ต้อง navigate ซ้ำ
+                }
+                // เปลี่ยนโหมดแสดงผล (List/Ranking)
+                switchProjectView(viewMode, false);
+                break;
+                
+            default:
+                document.getElementById('page-login').classList.remove('hidden');
         }
     }
-}
 
-// ฟังเหตุการณ์ hashchange และ load (เมื่อเปิดเว็บครั้งแรก)
-window.addEventListener('hashchange', handleHashChange);
-window.addEventListener('load', handleHashChange);
+    // เริ่มทำงานเมื่อโหลดหน้าหรือเปลี่ยน Hash
+    window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('load', handleHashChange);
 
 
-        window.switchTab = (tab) => {
-            const btnStudent = document.getElementById('tab-student');
-            const btnAdmin = document.getElementById('tab-admin');
-            const formStudent = document.getElementById('form-student');
-            const formAdmin = document.getElementById('form-admin');
-            const slider = document.getElementById('tab-slider');
-
-            if(tab === 'student') {
-                btnStudent.classList.replace('text-slate-400', 'text-spt-primary');
-                btnAdmin.classList.replace('text-spt-primary', 'text-slate-400');
-                slider.style.transform = 'translateX(0%)';
-                formStudent.classList.remove('hidden');
-                formAdmin.classList.add('hidden');
-                formStudent.classList.add('fade-in');
-            } else {
-                btnAdmin.classList.replace('text-slate-400', 'text-spt-primary');
-                btnStudent.classList.replace('text-spt-primary', 'text-slate-400');
-                slider.style.transform = 'translateX(100%)';
-                formAdmin.classList.remove('hidden');
-                formStudent.classList.add('hidden');
-                formAdmin.classList.add('fade-in');
-            }
-        };
-
-        window.openModal = (id) => document.getElementById(id).classList.remove('hidden');
-        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
-
-        // General function for adding rows to either create or edit modal
-        window.addSubjectRow = (containerId, initialData = null) => {
-            const container = document.getElementById(containerId);
-            const div = document.createElement('div');
-            div.className = "flex gap-2 items-center bg-white p-2 rounded-lg border border-slate-100 shadow-sm animate-fade-in";
+    // --- 2. AUTHENTICATION & LOGIN ---
+    
+    onAuthStateChanged(auth, (user) => {
+        document.getElementById('loading').classList.add('hidden');
+        if (user) {
+            state.user = user;
+            state.isAdmin = true;
+            document.getElementById('user-display').querySelector('span').innerText = "Admin Mode";
+            document.getElementById('user-display').classList.remove('hidden');
+            document.getElementById('btn-logout').classList.remove('hidden');
             
-            const name = initialData ? initialData.name : '';
-            const max = initialData ? initialData.max : '';
-            const weight = initialData ? initialData.weight : '1';
-            const priority = initialData ? (initialData.priority || '') : '';
-
-            div.innerHTML = `
-                <input type="text" placeholder="ชื่อวิชา" class="flex-grow p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-spt-primary" value="${name}" required>
-                <input type="number" placeholder="เต็ม" class="w-16 p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-center" value="${max}" required>
-                <input type="number" placeholder="นน." class="w-14 p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-center" value="${weight}" required>
-                <input type="number" placeholder="สำคัญ" class="w-14 p-2 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-center" value="${priority}" title="ลำดับความสำคัญ">
-                <button type="button" onclick="this.parentElement.remove()" class="text-red-400 w-8 h-8 flex items-center justify-center hover:bg-red-50 rounded-lg transition-colors"><i class="fas fa-times"></i></button>
-            `;
-            container.appendChild(div);
-        };
-
-        // --- 2. AUTHENTICATION ---
-        onAuthStateChanged(auth, (user) => {
-            const loader = document.getElementById('loading');
-            loader.classList.add('hidden');
-            if (user) {
-                state.user = user;
-                if (!user.isAnonymous) {
-                    state.isAdmin = true;
-                    document.getElementById('user-display').querySelector('span').innerText = "Admin Mode";
-                    document.getElementById('user-display').classList.remove('hidden');
-                    loadAdminProjects();
-                    window.router.navigate('admin');
-                }
-            } else {
-                state.user = null;
-                state.isAdmin = false;
-                window.router.navigate('login');
+            // ถ้าอยู่ที่หน้า Login ให้ไป Admin Dashboard
+            if(!window.location.hash || window.location.hash === '#login') {
+                window.router.navigate('admin');
             }
-        });
+        } else {
+            state.user = null;
+            state.isAdmin = false;
+        }
+    });
 
-        document.getElementById('form-student').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const id = document.getElementById('login-id').value;
-            if(id.length !== 13) return Swal.fire({icon: 'warning', title: 'ข้อมูลไม่ถูกต้อง', text: 'กรุณากรอกเลขบัตรประชาชน 13 หลัก'});
-            document.getElementById('loading').classList.remove('hidden');
-            try {
-               // if(!auth.currentUser) await signInAnonymously(auth);
-                const q = query(collection(db, 'students'), where('citizenId', '==', id));
-                const snaps = await getDocs(q);
-                if(snaps.empty) throw new Error('ไม่พบข้อมูลในระบบ');
-                const records = [];
-                snaps.forEach(doc => records.push({id: doc.id, ...doc.data()}));
-                state.myRecords = records;
-                await renderStudentProjectList(records);
-                const s = records[0];
-                document.getElementById('user-display').querySelector('span').innerText = `${s.prefix}${s.name}`;
-                document.getElementById('user-display').classList.remove('hidden');
-                window.router.navigate('student');
-            } catch (err) {
-                Swal.fire({icon: 'error', title: 'ไม่พบข้อมูล', text: 'กรุณาตรวจสอบเลขประจำตัวประชาชนอีกครั้ง'});
-            } finally { document.getElementById('loading').classList.add('hidden'); }
-        });
+    // Login นักเรียน (แก้ไขให้จำ ID)
+    document.getElementById('form-student').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('login-id').value.trim();
+        if (id.length !== 13 || isNaN(id)) {
+            Swal.fire('ข้อผิดพลาด', 'กรุณากรอกเลขบัตรประชาชน 13 หลักให้ถูกต้อง', 'error');
+            return;
+        }
+        // บันทึก ID ลง LocalStorage
+        localStorage.setItem('spt_student_id', id);
+        state.studentId = id;
+        
+        // ไปหน้า Dashboard
+        window.router.navigate('dashboard');
+    });
 
-        document.getElementById('form-admin').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const pass = document.getElementById('login-pass').value;
-            document.getElementById('loading').classList.remove('hidden');
-            try {
-                await signInWithEmailAndPassword(auth, email, pass);
-            } catch(err) {
-                Swal.fire('เข้าสู่ระบบไม่สำเร็จ', 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'error');
-                document.getElementById('loading').classList.add('hidden');
-            }
-        });
+    // Login Admin
+    document.getElementById('form-admin').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const pass = document.getElementById('login-pass').value;
+        try {
+            await signInWithEmailAndPassword(auth, email, pass);
+            // Router จะจัดการเปลี่ยนหน้าให้เองเมื่อ Auth State เปลี่ยน
+        } catch (error) {
+            Swal.fire('Error', 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'error');
+        }
+    });
 
-                document.getElementById('btn-logout').addEventListener('click',()=>{CustomSwal.fire({title:'ออกจากระบบ?',icon:'question',showCancelButton:true,confirmButtonText:'ยืนยัน',cancelButtonText:'ยกเลิก'}).then((r)=>{if(r.isConfirmed)if (auth.currentUser) {
-                // 1. กรณีแอดมิน: สั่ง Logout และไปหน้า Login
-                signOut(auth)
-            } else {
-                // 2. กรณีนักเรียน: สั่งรีเฟรชหน้าจอ เพื่อเคลียร์ค่าและกลับหน้าค้นหาทันที
-                window.location.reload(); 
-                // หรือใช้ window.router.navigate('/'); ถ้าไม่อยากรีโหลดทั้งหน้า
-            }});});
+    // Logout
+    document.getElementById('btn-logout').addEventListener('click', () => {
+        auth.signOut();
+        localStorage.removeItem('spt_student_id');
+        state.studentId = null;
+        state.user = null;
+        window.location.hash = 'login';
+        window.location.reload();
+    });
 
-        // --- 3. STUDENT VIEW ---
-        async function renderStudentProjectList(records) {
+    window.switchTab = (tab) => {
+        const slider = document.getElementById('tab-slider');
+        const btnStudent = document.getElementById('tab-student');
+        const btnAdmin = document.getElementById('tab-admin');
+        const formStudent = document.getElementById('form-student');
+        const formAdmin = document.getElementById('form-admin');
+
+        if (tab === 'student') {
+            slider.style.transform = 'translateX(0%)';
+            btnStudent.classList.replace('text-slate-400', 'text-spt-primary');
+            btnAdmin.classList.replace('text-spt-primary', 'text-slate-400');
+            formStudent.classList.remove('hidden');
+            formAdmin.classList.add('hidden');
+        } else {
+            slider.style.transform = 'translateX(100%)';
+            btnAdmin.classList.replace('text-slate-400', 'text-spt-primary');
+            btnStudent.classList.replace('text-spt-primary', 'text-slate-400');
+            formAdmin.classList.remove('hidden');
+            formStudent.classList.add('hidden');
+        }
+    };
+    
+    window.goHome = () => {
+        if(state.isAdmin) window.router.navigate('admin');
+        else if(state.studentId) window.router.navigate('dashboard');
+        else window.router.navigate('login');
+    }
+
+
+    // --- 3. STUDENT FUNCTIONS ---
+
+    // โหลดโครงการสำหรับนักเรียน
+    async function loadStudentProjects() {
+        document.getElementById('loading').classList.remove('hidden');
+        try {
+            const q = query(collection(db, 'projects'), where('visible', '==', true), orderBy('academicYear', 'desc'));
+            const querySnapshot = await getDocs(q);
             const container = document.getElementById('student-projects-list');
             container.innerHTML = '';
-            for(const rec of records) {
-                const projDoc = await getDoc(doc(db, 'projects', rec.projectId));
-                if(!projDoc.exists()) continue;
-                const proj = projDoc.data();
-                if(!proj.isVisible) continue;
-                
-                const div = document.createElement('div');
-                div.className = "bg-white p-6 rounded-3xl shadow-card hover:shadow-soft border border-slate-100 hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden";
-                div.onclick = () => viewResultDetail(rec, proj);
-                
-                div.innerHTML = `
-                    <div class="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-spt-secondary/50 to-transparent rounded-bl-full -mr-8 -mt-8 pointer-events-none"></div>
-                    
-                    <div class="flex items-start justify-between mb-4 relative z-10">
-                        <div class="w-14 h-14 bg-gradient-to-br from-pink-50 to-white text-spt-primary rounded-2xl border border-pink-100 flex items-center justify-center text-2xl shadow-sm">
-                            <i class="fas fa-file-signature"></i>
-                        </div>
-                        <div class="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100">ปี ${proj.academicYear || '2568'}</div>
-                    </div>
-                    
-                    <h3 class="font-bold text-lg text-slate-800 mb-2 leading-snug group-hover:text-spt-primary transition-colors line-clamp-2">${proj.name}</h3>
-                    
-                    <div class="mt-4 pt-3 border-t border-slate-50 text-sm text-slate-600 space-y-2">
-                        <div class="flex items-center gap-2">
-                            <div class="w-6 flex justify-center"><i class="fas fa-id-badge text-slate-400"></i></div>
-                            <span class="font-mono font-semibold">${rec.examId}</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-6 flex justify-center"><i class="fas fa-user-graduate text-slate-400"></i></div>
-                            <span>${rec.prefix}${rec.name} ${rec.surname}</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-6 flex justify-center"><i class="fas fa-school text-slate-400"></i></div>
-                            <span class="text-xs text-slate-500 truncate">${rec.oldSchool || '-'}</span>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 flex items-center justify-end">
-                        <span class="text-xs font-bold text-spt-primary bg-pink-50 px-3 py-1 rounded-full group-hover:bg-spt-primary group-hover:text-white transition-all">
-                            ดูผลคะแนน <i class="fas fa-arrow-right ml-1"></i>
-                        </span>
-                    </div>
-                `;
-                container.appendChild(div);
-            }
-        }
-
-        window.viewResultDetail = async (rec, proj) => {
-            document.getElementById('loading').classList.remove('hidden');
-            try {
-                const allQ = query(collection(db, 'students'), where('projectId', '==', rec.projectId));
-                const allSnaps = await getDocs(allQ);
-                const allStudents = [];
-                allSnaps.forEach(d => {
-                    const sData = d.data();
-                    let sum = 0;
-                    proj.subjects.forEach(s => sum += parseFloat(sData.scores[s.name] || 0));
-                    allStudents.push({ total: sum, scores: sData.scores, id: d.id });
-                });
-
-                // --- RANKING LOGIC (1224) ---
-                const sortFn = (a, b) => {
-                    if (b.total !== a.total) return b.total - a.total; 
-                    const breakers = proj.subjects.filter(s => s.priority && s.priority > 0).sort((x,y) => x.priority - y.priority);
-                    for (const sub of breakers) {
-                        const sA = parseFloat(a.scores[sub.name]||0);
-                        const sB = parseFloat(b.scores[sub.name]||0);
-                        if (sB !== sA) return sB - sA;
-                    }
-                    return 0;
-                };
-
-                allStudents.sort(sortFn);
-
-                // Assign Rank
-                allStudents.forEach((s, index) => {
-                    if (index > 0 && sortFn(allStudents[index - 1], s) === 0) {
-                        s.rank = allStudents[index - 1].rank;
-                    } else {
-                        s.rank = index + 1;
-                    }
-                });
-
-                // Find my record with calculated rank
-                const myRecord = allStudents.find(s => s.id === rec.id);
-                const myRank = myRecord ? myRecord.rank : '-';
-                
-                let myTotal = 0;
-                proj.subjects.forEach(s => myTotal += parseFloat(rec.scores[s.name] || 0));
-                const totalStudents = allStudents.length;
-                const percentile = ((totalStudents - myRank) / totalStudents) * 100;
-                const maxTotal = allStudents[0].total;
-
-                let subjectsHTML = '';
-                proj.subjects.forEach(s => {
-                    const myScore = parseFloat(rec.scores[s.name]||0);
-                    const subScores = allStudents.map(std => parseFloat(std.scores[s.name] || 0));
-                    const subMax = Math.max(...subScores);
-                    const subAvg = (subScores.reduce((a, b) => a + b, 0) / subScores.length).toFixed(2);
-                    const sortedSubScores = [...subScores].sort((a, b) => b - a);
-                    const subRank = sortedSubScores.indexOf(myScore) + 1;
-                    const subPercent = ((myScore / s.max) * 100).toFixed(0);
-                    let barColor = 'bg-red-400';
-                    if (subPercent >= 80) barColor = 'bg-green-500';
-                    else if (subPercent >= 50) barColor = 'bg-blue-400';
-                    else if (subPercent >= 30) barColor = 'bg-yellow-400';
-
-                    subjectsHTML += `
-                        <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-4 relative overflow-hidden group hover:shadow-md transition-all">
-                            <div class="absolute left-0 top-0 bottom-0 w-1 ${barColor}"></div>
-                            <div class="flex flex-col sm:flex-row justify-between sm:items-start mb-3 gap-2">
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-bold text-slate-800 text-lg">${s.name}</span>
-                                        ${s.priority ? `<span class="px-2 py-0.5 rounded-md bg-yellow-100 text-yellow-700 text-[10px] font-bold">สำคัญ ${s.priority}</span>` : ''}
-                                    </div>
-                                    <div class="flex gap-2 mt-1">
-                                        <span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">น้ำหนัก ${s.weight}</span>
-                                    </div>
-                                </div>
-                                <div class="text-left sm:text-right">
-                                    <div class="flex items-baseline gap-1 sm:justify-end">
-                                        <span class="font-bold text-3xl text-slate-800">${myScore}</span>
-                                        <span class="text-xs text-slate-400">/ ${s.max}</span>
-                                    </div>
-                                    <span class="text-xs font-bold ${subPercent >= 50 ? 'text-green-600' : 'text-orange-500'}">${subPercent}%</span>
-                                </div>
-                            </div>
-                            <div class="w-full bg-slate-100 rounded-full h-1.5 mb-4 overflow-hidden">
-                                <div class="${barColor} h-1.5 rounded-full" style="width: ${subPercent}%"></div>
-                            </div>
-                            <div class="grid grid-cols-3 gap-2 text-center text-xs divide-x divide-slate-100 bg-slate-50/50 rounded-xl p-2 border border-slate-100">
-                                <div><span class="block text-[10px] text-slate-400 mb-0.5">ลำดับที่</span><span class="font-bold text-slate-700 text-sm">#${subRank}</span></div>
-                                <div><span class="block text-[10px] text-slate-400 mb-0.5">สูงสุด</span><span class="font-bold text-green-600 text-sm">${subMax}</span></div>
-                                <div><span class="block text-[10px] text-slate-400 mb-0.5">เฉลี่ย</span><span class="font-bold text-blue-600 text-sm">${subAvg}</span></div>
-                            </div>
-                        </div>
-                    `;
-                });
-
-                const container = document.getElementById('student-result-content');
-                container.innerHTML = `
-                    <div class="bg-white rounded-[2.5rem] shadow-soft overflow-hidden animate-fade-in relative">
-                        <div class="bg-gradient-to-br from-[#E91E63] to-[#880E4F] p-8 pb-16 text-white relative overflow-hidden">
-                            <div class="absolute top-0 right-0 p-8 opacity-10 text-9xl transform rotate-12"><i class="fas fa-award"></i></div>
-                            <div class="relative z-10 text-center md:text-left">
-                                <span class="inline-block px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-bold mb-3 border border-white/10">ปีการศึกษา ${proj.academicYear || '2568'}</span>
-                                <h2 class="text-2xl md:text-3xl font-bold mb-2 leading-tight">${proj.name}</h2>
-                                <div class="flex flex-col md:flex-row items-center gap-4 text-white/90 text-sm mt-4">
-                                    <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center"><i class="fas fa-user"></i></div><span>${rec.prefix}${rec.name} ${rec.surname}</span></div>
-                                    <div class="hidden md:block w-px h-4 bg-white/30"></div>
-                                    <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center"><i class="fas fa-id-card-alt"></i></div><span class="font-mono text-lg tracking-wide">${rec.examId}</span></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="px-6 md:px-10 pb-10 -mt-10 relative z-20">
-                            <div class="grid grid-cols-2 gap-4 mb-8">
-                                <div class="bg-white p-5 rounded-3xl text-center shadow-lg border border-slate-100/50">
-                                    <div class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">คะแนนรวม</div>
-                                    <div class="text-3xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-spt-primary to-spt-dark mb-1">${myTotal.toFixed(2)}</div>
-                                    <div class="text-[10px] text-slate-400 bg-slate-50 inline-block px-2 py-0.5 rounded-md">Max: ${maxTotal}</div>
-                                </div>
-                                <div class="bg-white p-5 rounded-3xl text-center shadow-lg border border-slate-100/50">
-                                    <div class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">ลำดับที่</div>
-                                    <div class="text-3xl md:text-5xl font-bold text-slate-800 mb-1">#${myRank}</div>
-                                    <div class="text-xs text-slate-500">จากทั้งหมด ${totalStudents} คน</div>
-                                </div>
-                            </div>
-                            <div class="bg-slate-900 rounded-2xl p-5 text-white mb-8 shadow-xl relative overflow-hidden">
-                                <div class="absolute inset-0 bg-gradient-to-r from-slate-900 to-slate-800"></div>
-                                <div class="relative z-10">
-                                    <div class="flex justify-between items-end mb-3"><span class="text-sm font-medium text-slate-300">Percentile Rank</span><span class="text-2xl font-bold text-green-400">${percentile.toFixed(2)}</span></div>
-                                    <div class="w-full bg-slate-700 rounded-full h-3 overflow-hidden"><div class="bg-gradient-to-r from-green-400 to-emerald-500 h-3 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)]" style="width: ${percentile}%"></div></div>
-                                </div>
-                            </div>
-                            <div class="mb-4 flex items-center gap-3"><h4 class="text-lg font-bold text-slate-800">คะแนนรายวิชา</h4><div class="flex-grow h-px bg-slate-200"></div></div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${subjectsHTML}</div>
-                        </div>
-                    </div>
-                `;
-                window.router.navigate('student-result');
-            } catch(e) { console.error(e); } finally { document.getElementById('loading').classList.add('hidden'); }
-        };
-
-        // --- 4. ADMIN ---
-        async function loadAdminProjects() {
-            const container = document.getElementById('admin-project-list');
-            container.innerHTML = '...';
-            const snaps = await getDocs(collection(db, 'projects'));
-            container.innerHTML = '';
-            snaps.forEach(docSnap => {
-                const p = docSnap.data();
-                const div = document.createElement('div');
-                div.className = "bg-white p-6 rounded-3xl shadow-card hover:shadow-soft border border-slate-100 hover:-translate-y-1 transition-all cursor-pointer group";
-                div.onclick = () => openProjectDetail(docSnap.id);
-                const statusColor = p.isVisible ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500';
-                div.innerHTML = `
-                    <div class="flex justify-between items-start mb-5">
-                        <div class="w-14 h-14 bg-gradient-to-br from-slate-50 to-white rounded-2xl border border-slate-100 flex items-center justify-center text-2xl text-spt-primary shadow-sm group-hover:scale-110 transition-transform"><i class="fas fa-folder-open"></i></div>
-                        <span class="text-[10px] px-2.5 py-1 rounded-full border font-bold ${statusColor}">${p.isVisible ? 'เผยแพร่' : 'แบบร่าง'}</span>
-                    </div>
-                    <h3 class="font-bold text-lg text-slate-800 mb-1 line-clamp-1">${p.name}</h3>
-                    <div class="flex items-center gap-3 text-xs text-slate-400 mb-4">
-                        <span><i class="far fa-calendar mr-1"></i> ${p.academicYear || '2568'}</span>
-                        <span><i class="fas fa-book mr-1"></i> ${p.subjects.length} วิชา</span>
-                    </div>
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        document.getElementById('form-create-project').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const subjects = [];
-            document.querySelectorAll('#subject-rows > div').forEach(row => {
-                const inputs = row.querySelectorAll('input');
-                subjects.push({ name: inputs[0].value, max: parseFloat(inputs[1].value), weight: parseFloat(inputs[2].value), priority: parseInt(inputs[3].value) || 0 });
-            });
-            document.getElementById('loading').classList.remove('hidden'); // Show loading
-            try {
-                await addDoc(collection(db, 'projects'), {
-                    name: formData.get('name'),
-                    academicYear: formData.get('academicYear'),
-                    subjects: subjects,
-                    isVisible: false,
-                    createdAt: new Date()
-                });
-                closeModal('modal-create-project');
-                loadAdminProjects();
-            } finally {
-                document.getElementById('loading').classList.add('hidden'); // Hide loading
-            }
-        });
-
-        // EDIT PROJECT HANDLER
-        document.getElementById('form-edit-project').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const projectId = formData.get('id');
-            const subjects = [];
-            document.querySelectorAll('#edit-subject-rows > div').forEach(row => {
-                const inputs = row.querySelectorAll('input');
-                subjects.push({ name: inputs[0].value, max: parseFloat(inputs[1].value), weight: parseFloat(inputs[2].value), priority: parseInt(inputs[3].value) || 0 });
-            });
             
-            document.getElementById('loading').classList.remove('hidden'); // Show loading
-            try {
-                await updateDoc(doc(db, 'projects', projectId), {
-                    name: formData.get('name'),
-                    academicYear: formData.get('academicYear'),
-                    subjects: subjects
-                });
-                
-                closeModal('modal-edit-project');
-                openProjectDetail(projectId); // Reload detail
-                Swal.fire({icon: 'success', title: 'บันทึกการแก้ไขแล้ว', timer: 1500, showConfirmButton: false});
-            } finally {
-                document.getElementById('loading').classList.add('hidden'); // Hide loading
+            if(querySnapshot.empty){
+                 container.innerHTML = `<div class="col-span-full text-center py-10 text-slate-400">ยังไม่มีโครงการเปิดประกาศผลในขณะนี้</div>`;
+                 return;
             }
-        });
 
-        // --- 5. DETAIL ---
-                window.switchProjectView = (mode) => { state.projectView = mode; state.currentPage = 1; document.getElementById('btn-view-list').className = mode==='list'?"px-6 py-2 rounded-lg text-sm font-bold bg-white shadow-sm text-spt-primary transition-all border border-slate-100":"px-6 py-2 rounded-lg text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100/50 transition-all"; document.getElementById('btn-view-ranking').className = mode==='ranking'?"px-6 py-2 rounded-lg text-sm font-bold bg-white shadow-sm text-spt-primary transition-all border border-slate-100":"px-6 py-2 rounded-lg text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100/50 transition-all"; document.getElementById('edit-mode-container').classList.toggle('hidden', mode==='ranking'); if(mode==='ranking'){state.editMode=false;document.getElementById('edit-mode-toggle').checked=false;} calculateAndRender(); };
-window.openProjectDetail = async (id) => {
-            document.getElementById('loading').classList.remove('hidden');
+            querySnapshot.forEach((doc) => {
+                const proj = doc.data();
+                const div = document.createElement('div');
+                div.className = "bg-white p-6 rounded-3xl shadow-soft hover:shadow-lg transition-all cursor-pointer group border border-slate-100 relative overflow-hidden";
+                div.onclick = () => window.router.navigate(`student-result/${doc.id}`); // Link ไป Hash ใหม่
+                
+                div.innerHTML = `
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-spt-primary/10 to-transparent rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                    <div class="flex justify-between items-start mb-4 relative">
+                        <div class="w-12 h-12 bg-pink-50 rounded-2xl text-spt-primary flex items-center justify-center text-xl shadow-sm group-hover:bg-spt-primary group-hover:text-white transition-colors">
+                            <i class="fas fa-graduation-cap"></i>
+                        </div>
+                        <span class="bg-blue-50 text-blue-600 text-xs font-bold px-3 py-1 rounded-full border border-blue-100">ปี ${proj.academicYear}</span>
+                    </div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2 group-hover:text-spt-primary transition-colors line-clamp-2">${proj.name}</h3>
+                    <p class="text-slate-500 text-sm mb-4">${proj.subjects.length} วิชาสอบ</p>
+                    <div class="flex items-center text-spt-primary text-sm font-bold mt-auto">
+                        <span>ตรวจสอบผล</span> <i class="fas fa-arrow-right ml-2 group-hover:translate-x-1 transition-transform"></i>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        } catch(err) {
+            console.error(err);
+        } finally {
+            document.getElementById('loading').classList.add('hidden');
+        }
+    }
+
+    // แสดงผลสอบนักเรียน (คำนวณ Rank ฝั่ง Client เพื่อความแม่นยำตามสูตร)
+    async function showStudentResult(projectId) {
+        document.getElementById('loading').classList.remove('hidden');
+        try {
+            // 1. ดึงข้อมูลโครงการ
+            const pDoc = await getDoc(doc(db, 'projects', projectId));
+            if (!pDoc.exists()) throw new Error('ไม่พบโครงการ');
+            const project = { id: pDoc.id, ...pDoc.data() };
+
+            // 2. ดึงข้อมูลนักเรียนทั้งหมดในโครงการเพื่อนำมาจัด Ranking
+            // (ต้องดึงทั้งหมดเพื่อหาตำแหน่งของนักเรียนคนนี้)
+            const q = query(collection(db, 'students'), where('projectId', '==', projectId));
+            const sSnaps = await getDocs(q);
+            
+            const allStudents = [];
+            let myData = null;
+            
+            sSnaps.forEach(d => {
+                const s = d.data();
+                // คำนวณคะแนนรวม
+                let total = 0;
+                project.subjects.forEach(sub => total += parseFloat(s.scores[sub.name] || 0));
+                s.total = parseFloat(total.toFixed(2));
+                
+                allStudents.push(s);
+                
+                // เช็คว่าเป็นของนักเรียนคนนี้หรือไม่ (ใช้ citizenId ในการเช็ค)
+                if(s.citizenId === state.studentId) {
+                    myData = s;
+                }
+            });
+
+            if (!myData) {
+                Swal.fire('ไม่พบข้อมูล', 'ไม่พบรายชื่อของคุณในโครงการนี้', 'warning');
+                window.router.navigate('dashboard');
+                return;
+            }
+
+            // 3. คำนวณ Ranking
+            // Sort Function เดียวกับ Admin
+            const sFn = (a, b) => {
+                if (b.total !== a.total) return b.total - a.total;
+                const br = project.subjects.filter(s => s.priority).sort((x, y) => x.priority - y.priority);
+                for (const sb of br) {
+                    const sa = parseFloat(a.scores[sb.name] || 0);
+                    const sbv = parseFloat(b.scores[sb.name] || 0);
+                    if (sbv !== sa) return sbv - sa;
+                }
+                return 0;
+            };
+            
+            allStudents.sort(sFn);
+            
+            // หาอันดับ
+            let myRank = allStudents.findIndex(s => s.citizenId === state.studentId) + 1;
+            // Handle ranking ร่วม
+            if(myRank > 1) {
+                 const prev = allStudents[myRank-2];
+                 if(sFn(prev, myData) === 0) {
+                     // ต้องหาอันดับจริงๆ ของคนแรกที่มีคะแนนเท่ากัน
+                     myRank = allStudents.findIndex(s => sFn(s, myData) === 0) + 1;
+                 }
+            }
+            
+            const totalStudents = allStudents.length;
+            const percentile = ((totalStudents - myRank) / totalStudents) * 100;
+
+            // 4. Render HTML
+            let subjectsHTML = '';
+            project.subjects.forEach(s => {
+                const myScore = parseFloat(myData.scores[s.name] || 0);
+                const subPercent = ((myScore / s.max) * 100).toFixed(0);
+                
+                let barColor = 'bg-red-400';
+                if (subPercent >= 80) barColor = 'bg-green-500';
+                else if (subPercent >= 50) barColor = 'bg-blue-400';
+                else if (subPercent >= 30) barColor = 'bg-yellow-400';
+
+                subjectsHTML += `
+                <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-4 relative overflow-hidden group hover:shadow-md transition-all">
+                    <div class="absolute left-0 top-0 bottom-0 w-1 ${barColor}"></div>
+                    <div class="flex flex-col sm:flex-row justify-between sm:items-start mb-3 gap-2">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-slate-800 text-lg">${s.name}</span>
+                                ${s.priority ? `<span class="px-2 py-0.5 rounded-md bg-yellow-100 text-yellow-700 text-[10px] font-bold">สำคัญ ${s.priority}</span>` : ''}
+                            </div>
+                            <div class="flex gap-2 mt-1">
+                                <span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">น้ำหนัก ${s.weight}</span>
+                            </div>
+                        </div>
+                        <div class="text-left sm:text-right">
+                            <div class="flex items-baseline gap-1 sm:justify-end">
+                                <span class="text-2xl font-bold text-spt-primary">${myScore}</span>
+                                <span class="text-xs text-slate-400">/ ${s.max}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div class="${barColor} h-2 rounded-full transition-all duration-1000" style="width: ${subPercent}%"></div>
+                    </div>
+                </div>`;
+            });
+
+            document.getElementById('student-result-content').innerHTML = `
+                <div class="bg-white rounded-3xl p-6 md:p-8 shadow-soft border border-slate-100 text-center mb-6 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-spt-primary via-purple-500 to-blue-500"></div>
+                    <h2 class="text-xl md:text-2xl font-bold text-slate-800 mb-2">${project.name}</h2>
+                    <div class="inline-flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl mb-6">
+                        <i class="fas fa-user-circle text-spt-primary"></i>
+                        <span class="font-bold text-slate-700">${myData.prefix}${myData.name} ${myData.surname}</span>
+                        <span class="text-slate-400">|</span>
+                        <span class="text-slate-500 text-sm">เลขที่สอบ: ${myData.examId}</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                        <div class="bg-spt-bg p-4 rounded-2xl border border-pink-100">
+                            <div class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">คะแนนรวม</div>
+                            <div class="text-3xl md:text-5xl font-bold text-spt-primary mb-1">${myData.total}</div>
+                            <div class="text-xs text-slate-500">คะแนนเต็ม 100</div>
+                        </div>
+                        <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                            <div class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">ลำดับที่</div>
+                            <div class="text-3xl md:text-5xl font-bold text-slate-800 mb-1">#${myRank}</div>
+                            <div class="text-xs text-slate-500">จากทั้งหมด ${totalStudents} คน</div>
+                        </div>
+                        <div class="col-span-2 md:col-span-1 bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden flex flex-col justify-center">
+                             <div class="flex justify-between items-end mb-2"><span class="text-sm font-medium text-slate-300">Percentile Rank</span><span class="text-2xl font-bold text-green-400">${percentile.toFixed(2)}</span></div>
+                             <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden"><div class="bg-gradient-to-r from-green-400 to-emerald-500 h-2 rounded-full" style="width: ${percentile}%"></div></div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4 flex items-center gap-3"><h4 class="text-lg font-bold text-slate-800">คะแนนรายวิชา</h4><div class="flex-grow h-px bg-slate-200"></div></div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${subjectsHTML}</div>
+                </div>
+            `;
+
+        } catch (e) {
+            console.error(e);
+            Swal.fire('Error', 'เกิดข้อผิดพลาดในการโหลดผลสอบ', 'error');
+        } finally {
+            document.getElementById('loading').classList.add('hidden');
+        }
+    }
+
+
+    // --- 4. ADMIN FUNCTIONS (Updated for Router) ---
+
+    async function loadAdminProjects() {
+        const container = document.getElementById('admin-project-list');
+        container.innerHTML = '';
+        const q = query(collection(db, 'projects'), orderBy('academicYear', 'desc'));
+        const snaps = await getDocs(q);
+        
+        snaps.forEach(docSnap => {
+            const proj = { id: docSnap.id, ...docSnap.data() };
+            const div = document.createElement('div');
+            div.className = "bg-white p-6 rounded-3xl shadow-sm hover:shadow-lg transition-all border border-slate-100 cursor-pointer relative group";
+            div.onclick = () => window.router.navigate(`detail/${proj.id}/list`); // ใช้ Router
+            
+            div.innerHTML = `
+                <div class="flex justify-between items-start mb-4">
+                     <div class="w-12 h-12 rounded-2xl bg-pink-50 text-spt-primary border border-pink-100 flex items-center justify-center text-2xl shadow-sm">
+                        <i class="fas fa-file-signature"></i>
+                     </div>
+                     <div class="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100">ปี ${proj.academicYear || '2568'}</div>
+                </div>
+                <h3 class="font-bold text-lg text-slate-800 mb-2 leading-snug group-hover:text-spt-primary transition-colors line-clamp-2">${proj.name}</h3>
+                <div class="text-xs text-slate-400 font-medium">${proj.subjects.length} วิชาสอบ</div>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    // ฟังก์ชันเปิดหน้ารายละเอียดโครงการ (ปรับแก้ให้รองรับ Router)
+    window.openProjectDetail = async (id, shouldNavigate = true) => {
+        if(shouldNavigate) {
+            window.router.navigate(`detail/${id}/list`);
+            return;
+        }
+
+        document.getElementById('loading').classList.remove('hidden');
+        try {
             const docSnap = await getDoc(doc(db, 'projects', id));
             const data = docSnap.data();
             state.currentProject = { id, ...data };
@@ -933,296 +899,412 @@ window.openProjectDetail = async (id) => {
             state.currentPage = 1;
             state.showAll = false;
             
+            // Render UI Headers
             document.getElementById('edit-mode-toggle').checked = false;
             document.getElementById('detail-title').innerText = data.name;
-            document.getElementById('detail-year').innerText = data.academicYear || '2568';
+            document.getElementById('detail-year').innerText = data.academicYear;
             document.getElementById('detail-subtitle').innerText = `${data.subjects.length} รายวิชา`;
+            document.getElementById('btn-visibility').innerHTML = data.visible 
+                ? `<i class="fas fa-eye text-green-500"></i> <span class="hidden sm:inline">แสดงผล</span>` 
+                : `<i class="fas fa-eye-slash text-slate-400"></i> <span class="hidden sm:inline text-red-600">ซ่อนผล</span>`;
             
-            updateVisibilityButtonUI(data.isVisible);
-
-            const headerRow = document.querySelector('thead tr');
-            headerRow.innerHTML = `<th class="px-6 py-4 w-16 text-center border-b border-slate-200">#</th><th class="px-6 py-4 border-b border-slate-200">เลขที่สอบ</th><th class="px-6 py-4 border-b border-slate-200">ชื่อ-สกุล</th>`;
-            data.subjects.forEach(s => {
-                headerRow.innerHTML += `<th class="px-4 py-4 text-center bg-slate-50/50 border-b border-slate-200"><div class="flex flex-col items-center"><span class="text-xs font-bold text-slate-700">${s.name}</span><span class="text-[10px] text-slate-400">เต็ม ${s.max}</span></div></th>`;
-            });
-            headerRow.innerHTML += `<th class="px-6 py-4 text-center border-b border-slate-200">รวม</th><th class="px-6 py-4 text-center border-b border-slate-200">ลบ</th>`;
+            // Generate Table Header
+            const headerRow = document.getElementById('table-header-row');
+            let hHTML = `<th class="p-4 rounded-tl-xl">ที่</th><th class="p-4">เลขสอบ</th><th class="p-4">ชื่อ-สกุล</th>`;
+            data.subjects.forEach(s => hHTML += `<th class="p-4 text-center">${s.name} (${s.max})</th>`);
+            hHTML += `<th class="p-4 text-center">รวม</th><th class="p-4 rounded-tr-xl">จัดการ</th>`;
+            headerRow.innerHTML = hHTML;
 
             await loadStudents(id);
-            window.router.navigate('detail');
-        };
 
-        window.openEditProjectModal = () => {
-            const p = state.currentProject;
-            const form = document.getElementById('form-edit-project');
-            form.elements['id'].value = p.id;
-            form.elements['name'].value = p.name;
-            form.elements['academicYear'].value = p.academicYear || '';
-            
-            const rows = document.getElementById('edit-subject-rows');
-            rows.innerHTML = '';
-            p.subjects.forEach(sub => addSubjectRow('edit-subject-rows', sub));
-            
-            openModal('modal-edit-project');
-        };
-        window.clearProjectScores = async () => { if(state.studentsCache.length===0) return CustomSwal.fire('Info','ไม่มีข้อมูล','info'); const r = await CustomSwal.fire({title:'ล้างคะแนน?',text:'คะแนนจะเป็น 0 แต่รายชื่อยังอยู่',icon:'warning',showCancelButton:true,confirmButtonColor:'#f97316'}); if(r.isConfirmed){ document.getElementById('loading').classList.remove('hidden'); const ops=state.studentsCache.map(s=>b=>b.update(doc(db,'students',s.id),{scores:{}})); await runBatch(ops); loadStudents(state.currentProject.id); CustomSwal.fire('Success','เรียบร้อย','success'); } };
-
-        window.clearProjectData = async () => {
-            const count = state.studentsCache.length;
-            if(count === 0) return Swal.fire('ไม่มีข้อมูล', 'ไม่มีข้อมูลนักเรียนในโครงการนี้', 'info');
-            
-            const result = await Swal.fire({
-                title: 'ยืนยันการล้างข้อมูล?',
-                text: `คุณต้องการลบข้อมูลนักเรียนทั้งหมด ${count} คน ออกจากโครงการนี้ใช่หรือไม่? (ตัวโครงการจะไม่ถูกลบ)`,
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonText: 'ลบข้อมูลทั้งหมด',
-                cancelButtonText: 'ยกเลิก',
-                confirmButtonColor: '#d33'
-            });
-
-            if(result.isConfirmed) {
-                document.getElementById('loading').classList.remove('hidden'); // Show loading
-                try {
-                    const batch = writeBatch(db);
-                    state.studentsCache.forEach(s => batch.delete(doc(db, 'students', s.id)));
-                    await batch.commit();
-                    
-                    loadStudents(state.currentProject.id); // Reload
-                    Swal.fire('สำเร็จ', 'ล้างข้อมูลเรียบร้อยแล้ว', 'success');
-                } catch(e) {
-                    Swal.fire('Error', 'เกิดข้อผิดพลาดในการลบ', 'error');
-                } finally {
-                    document.getElementById('loading').classList.add('hidden'); // Hide loading
-                }
-            }
-        };
-
-        function updateVisibilityButtonUI(isVisible) {
-            const btn = document.getElementById('btn-visibility');
-            if (isVisible) {
-                btn.innerHTML = `<i class="fas fa-eye-slash text-red-500"></i> <span class="hidden sm:inline text-red-600">ซ่อนผล</span>`;
-            } else {
-                btn.innerHTML = `<i class="fas fa-eye text-slate-400"></i> <span class="hidden sm:inline">แสดงผล</span>`;
-            }
-        }
-
-        async function loadStudents(projId) {
-            const q = query(collection(db, 'students'), where('projectId', '==', projId));
-            const snaps = await getDocs(q);
-            state.studentsCache = [];
-            snaps.forEach(d => state.studentsCache.push({ id: d.id, ...d.data() }));
-            calculateAndRender();
+        } catch(err) {
+            console.error(err);
+            Swal.fire('Error', 'โหลดข้อมูลไม่สำเร็จ', 'error');
+        } finally {
             document.getElementById('loading').classList.add('hidden');
         }
+    };
 
-                        function calculateAndRender(){ const p=state.currentProject; const f=document.getElementById('search-box').value.toLowerCase(); state.studentsCache.forEach(s=>{ let t=0; p.subjects.forEach(sub=>t+=parseFloat(s.scores[sub.name]||0)); s.total=parseFloat(t.toFixed(2)); }); const sFn=(a,b)=>{if(b.total!==a.total)return b.total-a.total;const br=p.subjects.filter(s=>s.priority).sort((x,y)=>x.priority-y.priority);for(const sb of br){const sa=parseFloat(a.scores[sb.name]||0);const sbv=parseFloat(b.scores[sb.name]||0);if(sbv!==sa)return sbv-sa;}return 0;}; const rList=[...state.studentsCache].sort(sFn); rList.forEach((s,i)=>{if(i>0&&sFn(rList[i-1],s)===0)s.rank=rList[i-1].rank;else s.rank=i+1;}); let dList=[...state.studentsCache]; if(state.projectView==='ranking') dList.sort(sFn); else dList.sort((a,b)=>a.examId.localeCompare(b.examId,undefined,{numeric:true})); const filt=dList.filter(s=>!f||`${s.prefix}${s.name} ${s.surname}`.toLowerCase().includes(f)||s.examId.includes(f)); const tRows=filt.length; const tPages=Math.ceil(tRows/state.rowsPerPage); if(state.currentPage>tPages)state.currentPage=tPages||1; const st=state.showAll?0:(state.currentPage-1)*state.rowsPerPage; const disp=filt.slice(st,state.showAll?tRows:st+state.rowsPerPage); const hRow=document.querySelector('#table-header-row'); const rTit=state.projectView==='ranking'?'ลำดับที่':'ที่'; hRow.innerHTML=`<th class="px-6 py-4 w-20 text-center border-b border-slate-200 text-spt-primary font-bold">${rTit}</th><th class="px-6 py-4 border-b border-slate-200">เลขที่สอบ</th><th class="px-6 py-4 border-b border-slate-200">ชื่อ-สกุล</th>`; p.subjects.forEach(s=>hRow.innerHTML+=`<th class="px-4 py-4 text-center bg-slate-50/50 border-b border-slate-200"><div class="flex flex-col items-center"><span class="text-xs font-bold text-slate-700">${s.name}</span><span class="text-[10px] text-slate-400">เต็ม ${s.max}</span></div></th>`); hRow.innerHTML+=`<th class="px-6 py-4 text-center border-b border-slate-200">รวม</th><th class="px-6 py-4 text-center border-b border-slate-200">ลบ</th>`; const body=document.getElementById('table-body'); body.innerHTML=''; disp.forEach((s,i)=>{ const tr=document.createElement('tr'); tr.className="hover:bg-slate-50/80 transition-colors border-b border-slate-50"; const c1=state.projectView==='ranking'?`<span class="font-bold text-spt-primary">${s.rank}</span>`:`<span class="text-slate-400">${st+i+1}</span>`; let h=`<td class="px-6 py-4 text-center text-sm">${c1}</td><td class="px-6 py-4 font-mono font-bold text-slate-600">${s.examId}</td><td class="px-6 py-4 font-medium text-slate-700">${s.prefix}${s.name} ${s.surname}</td>`; p.subjects.forEach(sub=>{ const v=s.scores[sub.name]||0; const d=state.editMode?`<input type="text" value="${v}" class="score-input w-full text-center p-1.5 border border-spt-primary/30 rounded-lg focus:ring-2 focus:ring-spt-primary outline-none bg-white font-mono text-sm" data-student-id="${s.id}" data-subject="${sub.name}" onblur="updateScoreInline('${s.id}','${sub.name}',this.value)" onkeydown="handleEnter(event,this)" onpaste="handlePaste(event)">`:`<span class="font-mono text-slate-600">${v}</span>`; h+=`<td class="px-4 py-4 text-center border-l border-dashed border-slate-100">${d}</td>`; }); h+=`<td class="px-6 py-4 text-center font-bold text-spt-primary">${s.total}</td><td class="px-6 py-4 text-center"><button onclick="deleteStudent('${s.id}')" class="text-slate-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button></td>`; tr.innerHTML=h; body.appendChild(tr); }); document.getElementById('page-info').innerText=state.showAll?`All (${tRows})`:`${state.currentPage} / ${tPages}`; }
-        // --- PASTE LOGIC ---
-        window.handlePaste = async (e) => {
-            e.preventDefault();
-            const pasteData = (e.clipboardData || window.clipboardData).getData('text');
-            const rows = pasteData.split(/\r\n|\n|\r/).filter(row => row.trim() !== '');
-            
-            const currentInput = e.target;
-            const currentTr = currentInput.closest('tr');
-            const tableBody = document.getElementById('table-body');
-            const allRows = Array.from(tableBody.querySelectorAll('tr'));
-            const startRowIndex = allRows.indexOf(currentTr);
-            const inputsInRow = Array.from(currentTr.querySelectorAll('.score-input'));
-            const startColIndex = inputsInRow.indexOf(currentInput);
+    // ฟังก์ชันเปลี่ยนโหมดดู List/Ranking (ปรับแก้ให้รองรับ Router)
+    window.switchProjectView = (mode, shouldNavigate = true) => {
+        // ถ้า Hash ปัจจุบันไม่ตรงกับ mode ให้เปลี่ยน Hash
+        if(shouldNavigate && state.currentProject) {
+             window.router.navigate(`detail/${state.currentProject.id}/${mode}`);
+             return;
+        }
 
-            if (startRowIndex === -1 || startColIndex === -1) return;
+        state.projectView = mode;
+        state.currentPage = 1;
 
-            // Show loading during paste processing
-            document.getElementById('loading').classList.remove('hidden');
-
-            let updatedCount = 0;
-            const batchUpdates = [];
-
-            try {
-                for (let i = 0; i < rows.length; i++) {
-                    const rowData = rows[i].split('\t');
-                    const targetRow = allRows[startRowIndex + i];
-                    
-                    if (targetRow) {
-                        const rowInputs = Array.from(targetRow.querySelectorAll('.score-input'));
-                        for (let j = 0; j < rowData.length; j++) {
-                            const targetInput = rowInputs[startColIndex + j];
-                            if (targetInput) {
-                                const value = parseFloat(rowData[j].trim());
-                                if (!isNaN(value)) {
-                                    targetInput.value = value;
-                                    const sId = targetInput.dataset.studentId;
-                                    const sub = targetInput.dataset.subject;
-                                    const stu = state.studentsCache.find(s => s.id === sId);
-                                    if(stu) stu.scores[sub] = value;
-                                    batchUpdates.push(updateDoc(doc(db, 'students', sId), { [`scores.${sub}`]: value }));
-                                    updatedCount++;
-                                }
-                            }
-                        }
-                        const stuId = rowInputs[0].dataset.studentId;
-                        const stu = state.studentsCache.find(s => s.id === stuId);
-                        if(stu) {
-                            let total = 0;
-                            state.currentProject.subjects.forEach(sub => total += parseFloat(stu.scores[sub.name] || 0));
-                            stu.total = parseFloat(total.toFixed(2));
-                            targetRow.cells[targetRow.cells.length - 2].innerText = stu.total;
-                        }
-                    }
-                }
-                
-                await Promise.all(batchUpdates);
-                const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
-                Toast.fire({ icon: 'success', title: `วางข้อมูล ${updatedCount} ช่องสำเร็จ` });
-            } finally {
-                document.getElementById('loading').classList.add('hidden'); // Hide loading
-            }
-        };
-
-        window.changePage = (d) => { state.currentPage += d; calculateAndRender(); };
-        window.toggleShowAll = () => { state.showAll = !state.showAll; document.getElementById('btn-show-all').classList.toggle('bg-spt-primary', state.showAll); document.getElementById('btn-show-all').classList.toggle('text-white', state.showAll); calculateAndRender(); };
-        window.toggleVisibility = async () => { const p = state.currentProject; await updateDoc(doc(db,'projects',p.id),{isVisible:!p.isVisible}); p.isVisible=!p.isVisible; updateVisibilityButtonUI(p.isVisible); };
-        document.getElementById('edit-mode-toggle').addEventListener('change', (e) => { state.editMode = e.target.checked; calculateAndRender(); });
-        document.getElementById('search-box').addEventListener('keyup', () => { state.currentPage=1; calculateAndRender(); });
-        window.showProjectStats=()=>{ /* Same as prev */ const p=state.currentProject; if(!p||state.studentsCache.length===0)return CustomSwal.fire('No Data','','info'); const sc=state.studentsCache.map(s=>s.total); const mx=Math.max(...sc); const mn=Math.min(...sc); const avg=(sc.reduce((a,b)=>a+b,0)/sc.length).toFixed(2); const mn2=sc.reduce((a,b)=>a+b,0)/sc.length; const v=sc.reduce((a,b)=>a+Math.pow(b-mn2,2),0)/sc.length; const sd=Math.sqrt(v).toFixed(2); let h=''; p.subjects.forEach(s=>{ const subS=state.studentsCache.map(x=>parseFloat(x.scores[s.name]||0)); const smx=Math.max(...subS); const smn=Math.min(...subS); const savg=(subS.reduce((a,b)=>a+b,0)/subS.length).toFixed(2); h+=`<tr class="border-b border-slate-100"><td class="py-3 px-4 font-medium">${s.name}</td><td class="text-center text-slate-600">${savg}</td><td class="text-center text-green-600 font-bold">${smx}</td><td class="text-center text-red-500 font-bold">${smn}</td></tr>`; }); document.getElementById('stats-content').innerHTML=`<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"><div class="bg-blue-50 p-4 rounded-xl text-center border border-blue-100"><div class="text-xs text-blue-500 uppercase font-bold">จำนวนสอบ</div><div class="text-2xl font-bold text-blue-700">${state.studentsCache.length}</div></div><div class="bg-green-50 p-4 rounded-xl text-center border border-green-100"><div class="text-xs text-green-500 uppercase font-bold">เฉลี่ยรวม</div><div class="text-2xl font-bold text-green-700">${avg}</div></div><div class="bg-purple-50 p-4 rounded-xl text-center border border-purple-100"><div class="text-xs text-purple-500 uppercase font-bold">S.D.</div><div class="text-2xl font-bold text-purple-700">${sd}</div></div><div class="bg-orange-50 p-4 rounded-xl text-center border border-orange-100"><div class="text-xs text-orange-500 uppercase font-bold">Max/Min</div><div class="text-lg font-bold text-orange-700">${mx} / ${mn}</div></div></div><h4 class="font-bold mb-3 border-l-4 border-spt-primary pl-3">สถิติรายวิชา</h4><div class="overflow-hidden rounded-xl border border-slate-200"><table class="w-full text-sm text-left"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-3 px-4">วิชา</th><th class="text-center">เฉลี่ย</th><th class="text-center">สูงสุด</th><th class="text-center">ต่ำสุด</th></tr></thead><tbody>${h}</tbody></table></div>`; openModal('modal-stats'); };
-        window.updateScoreInline = async (id, sub, val) => { 
-            const num = parseFloat(val); 
-            if(isNaN(num)) return; 
-            const s = state.studentsCache.find(x=>x.id===id); 
-            if(s) {
-                s.scores[sub]=num;
-                let total = 0;
-                state.currentProject.subjects.forEach(subj => total += parseFloat(s.scores[subj.name] || 0));
-                s.total = parseFloat(total.toFixed(2));
-                const input = document.activeElement;
-                if(input && input.tagName === 'INPUT') {
-                    const row = input.closest('tr');
-                    row.cells[row.cells.length - 2].innerText = s.total;
-                }
-            }
-            try{ await updateDoc(doc(db,'students',id), {[`scores.${sub}`]:num}); }catch(e){} 
-        };
+        document.getElementById('btn-view-list').className = mode === 'list' 
+            ? "px-6 py-2 rounded-lg text-sm font-bold bg-white shadow-sm text-spt-primary transition-all border border-slate-100" 
+            : "px-6 py-2 rounded-lg text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100/50 transition-all";
         
-        window.handleEnter = (e, i) => { if(e.key==='Enter') i.blur(); };
-        window.deleteStudent = async (id) => { 
-            if(!confirm('ลบ?')) return; 
-            document.getElementById('loading').classList.remove('hidden'); // Show loading
-            try {
-                await deleteDoc(doc(db,'students',id)); 
-                loadStudents(state.currentProject.id); 
-            } finally {
-                // loadStudents will hide loading at the end
-            }
-        };
-                window.clearProjectScores = async () => { if(state.studentsCache.length===0) return CustomSwal.fire('Info','ไม่มีข้อมูล','info'); const r = await CustomSwal.fire({title:'ล้างคะแนน?',text:'คะแนนจะเป็น 0 แต่รายชื่อยังอยู่',icon:'warning',showCancelButton:true,confirmButtonColor:'#f97316'}); if(r.isConfirmed){ document.getElementById('loading').classList.remove('hidden'); const ops=state.studentsCache.map(s=>b=>b.update(doc(db,'students',s.id),{scores:{}})); await runBatch(ops); loadStudents(state.currentProject.id); CustomSwal.fire('Success','เรียบร้อย','success'); } };
-        window.deleteCurrentProject = async () => { 
-            if(!confirm('ยืนยันลบโครงการ?')) return; 
-            document.getElementById('loading').classList.remove('hidden'); // Show loading
-            try {
-                await deleteDoc(doc(db,'projects',state.currentProject.id)); 
-                const b = writeBatch(db); 
-                state.studentsCache.forEach(s=>b.delete(doc(db,'students',s.id))); 
-                await b.commit(); 
-                router.navigate('admin'); 
-            } finally {
-                document.getElementById('loading').classList.add('hidden'); // Hide loading
-            }
-        };
+        document.getElementById('btn-view-ranking').className = mode === 'ranking' 
+            ? "px-6 py-2 rounded-lg text-sm font-bold bg-white shadow-sm text-spt-primary transition-all border border-slate-100" 
+            : "px-6 py-2 rounded-lg text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100/50 transition-all";
+
+        document.getElementById('edit-mode-container').classList.toggle('hidden', mode === 'ranking');
+        if (mode === 'ranking') {
+            state.editMode = false;
+            document.getElementById('edit-mode-toggle').checked = false;
+        }
+        calculateAndRender();
+    };
+
+
+    // --- 5. DATA HANDLING & UTILS (KEEP ORIGINAL LOGIC) ---
+    // (ส่วนนี้เป็น Logic เดิมของแอดมิน แต่ต้องมีเพื่อให้ทำงานได้ครบถ้วน)
+
+    async function loadStudents(projId) {
+        const q = query(collection(db, 'students'), where('projectId', '==', projId));
+        const snaps = await getDocs(q);
+        state.studentsCache = [];
+        snaps.forEach(d => state.studentsCache.push({ id: d.id, ...d.data() }));
+        calculateAndRender();
+    }
+
+    function calculateAndRender() {
+        const p = state.currentProject;
+        if(!p) return;
+        const f = document.getElementById('search-box').value.toLowerCase();
         
-        window.importStudents = (input) => {
-            const file = input.files[0];
-            if(!file) return;
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                document.getElementById('loading').classList.remove('hidden'); // Show loading
-                try {
-                    const rows = e.target.result.split('\n').slice(1);
-                    const batch = writeBatch(db);
-                    let count = 0;
-                    rows.forEach(x=>{ 
-                        const c=x.split(','); 
-                        if(c.length<2)return; 
-                        const ref=doc(collection(db,'students')); 
-                        batch.set(ref,{projectId:state.currentProject.id,citizenId:c[0]?.trim(),examId:c[1]?.trim(),prefix:c[2]?.trim(),name:c[3]?.trim(),surname:c[4]?.trim(),oldSchool:c[5]?.trim()||'',scores:{}}); 
-                        count++;
-                    });
-                    await batch.commit();
-                    loadStudents(state.currentProject.id);
-                    Swal.fire({icon:'success', title:`นำเข้าข้อมูลสำเร็จ ${count} รายการ`, timer: 2000});
-                } finally {
-                    document.getElementById('loading').classList.add('hidden'); // Hide loading
-                }
-            };
-            reader.readAsText(file);
-            input.value = '';
-        };
-
-        window.importScores = (input) => {
-             const file = input.files[0];
-            if(!file) return;
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                document.getElementById('loading').classList.remove('hidden'); // Show loading
-                try {
-                    const lines = e.target.result.split('\n');
-                    const headers = lines[0].split(',').map(h=>h.trim());
-                    const batch = writeBatch(db);
-                    const map = {};
-                    let count = 0;
-                    state.studentsCache.forEach(s => map[s.examId] = s.id);
-                    lines.slice(1).forEach(line => {
-                        const cols = line.split(',').map(c=>c.trim());
-                        const examId = cols[0];
-                        if(!map[examId]) return;
-                        const updateData = {};
-                        let hasData = false;
-                        for(let i=1; i<cols.length; i++) {
-                            if(headers[i] && cols[i]) {
-                                updateData[`scores.${headers[i]}`] = parseFloat(cols[i]);
-                                hasData = true;
-                            }
-                        }
-                        if(hasData) {
-                            batch.update(doc(db, 'students', map[examId]), updateData);
-                            count++;
-                        }
-                    });
-                    await batch.commit();
-                    loadStudents(state.currentProject.id);
-                    Swal.fire({icon:'success', title:`อัปเดตคะแนนสำเร็จ ${count} รายการ`, timer: 2000});
-                } finally {
-                    document.getElementById('loading').classList.add('hidden'); // Hide loading
-                }
-            };
-            reader.readAsText(file);
-            input.value = '';
-        };
-
-                window.exportCSV=()=>{const p=state.currentProject;const d=state.studentsCache.map(s=>{const r={'Rank':s.rank,'ExamID':s.examId,'Name':`${s.prefix}${s.name} ${s.surname}`};p.subjects.forEach(sub=>r[sub.name]=s.scores[sub.name]||0);r['Total']=s.total;return r;});const ws=XLSX.utils.json_to_sheet(d);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Scores");XLSX.writeFile(wb,`${p.name}.csv`);};
-
-        document.getElementById('form-add-student').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const fd = new FormData(e.target);
-            const data = Object.fromEntries(fd.entries());
-            data.projectId = state.currentProject.id;
-            data.scores = {};
-            document.getElementById('loading').classList.remove('hidden'); // Show loading
-            try {
-                await addDoc(collection(db, 'students'), data);
-                closeModal('modal-add-student');
-                e.target.reset();
-                loadStudents(state.currentProject.id);
-                Swal.fire({icon:'success', title:'เพิ่มเรียบร้อย', toast:true, position:'top-end', timer:1500, showConfirmButton:false});
-            } catch(err) {
-            } finally {
-                document.getElementById('loading').classList.add('hidden'); // Hide loading
-            }
+        // Calc Total
+        state.studentsCache.forEach(s => {
+            let t = 0;
+            p.subjects.forEach(sub => t += parseFloat(s.scores[sub.name] || 0));
+            s.total = parseFloat(t.toFixed(2));
         });
 
-        // Init first row for Create Modal
-        addSubjectRow('subject-rows');
-    </script>
+        // Sort Logic
+        const sFn = (a, b) => {
+            if (b.total !== a.total) return b.total - a.total;
+            const br = p.subjects.filter(s => s.priority).sort((x, y) => x.priority - y.priority);
+            for (const sb of br) {
+                const sa = parseFloat(a.scores[sb.name] || 0);
+                const sbv = parseFloat(b.scores[sb.name] || 0);
+                if (sbv !== sa) return sbv - sa;
+            }
+            return 0;
+        };
+
+        const rList = [...state.studentsCache].sort(sFn);
+        rList.forEach((s, i) => {
+            if (i > 0 && sFn(rList[i - 1], s) === 0) s.rank = rList[i - 1].rank;
+            else s.rank = i + 1;
+        });
+
+        let dList = [...state.studentsCache];
+        if (state.projectView === 'ranking') dList.sort(sFn);
+        else dList.sort((a, b) => a.examId.localeCompare(b.examId, undefined, { numeric: true }));
+
+        const filt = dList.filter(s => !f || s.name.includes(f) || s.surname.includes(f) || s.examId.includes(f));
+        const totalPage = Math.ceil(filt.length / state.rowsPerPage);
+        if (state.currentPage > totalPage) state.currentPage = 1;
+
+        const start = (state.currentPage - 1) * state.rowsPerPage;
+        const end = state.showAll ? filt.length : start + state.rowsPerPage;
+        const viewData = state.showAll ? filt : filt.slice(start, end);
+
+        renderTable(viewData, p);
+        
+        // Update Footer Stats
+        document.getElementById('page-info').innerText = `Page ${state.currentPage} / ${totalPage || 1}`;
+        document.getElementById('stats-bar').innerText = `นักเรียนทั้งหมด ${state.studentsCache.length} คน | แสดง ${filt.length} คน`;
+    }
+
+    function renderTable(data, proj) {
+        const tbody = document.getElementById('table-body');
+        tbody.innerHTML = '';
+        data.forEach((s, idx) => {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-slate-50 transition-colors group";
+            
+            let tds = `
+            <td class="p-4 font-bold text-slate-500 text-xs">${state.projectView === 'ranking' ? `<span class="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center">${s.rank}</span>` : (state.currentPage - 1) * state.rowsPerPage + idx + 1}</td>
+            <td class="p-4 font-mono font-bold text-spt-primary">${s.examId}</td>
+            <td class="p-4"><div class="font-bold text-slate-700">${s.prefix}${s.name} ${s.surname}</div><div class="text-[10px] text-slate-400">${s.oldSchool || '-'}</div></td>
+            `;
+
+            proj.subjects.forEach(sub => {
+                const sc = s.scores[sub.name] || 0;
+                if (state.editMode) {
+                    tds += `<td class="p-2 text-center"><input type="text" class="w-12 p-1 border rounded text-center bg-white focus:ring-2 focus:ring-spt-primary outline-none score-input" value="${sc}" data-student-id="${s.id}" data-subject="${sub.name}" onfocus="this.select()"></td>`;
+                } else {
+                    tds += `<td class="p-4 text-center ${parseFloat(sc) < sub.max / 2 ? 'text-red-500' : 'text-slate-600'}">${sc}</td>`;
+                }
+            });
+
+            tds += `<td class="p-4 text-center font-bold text-spt-primary bg-slate-50/50">${s.total}</td>
+            <td class="p-4 text-center">
+                <button onclick="deleteStudent('${s.id}')" class="text-slate-300 hover:text-red-500 transition-colors"><i class="fas fa-trash"></i></button>
+            </td>`;
+            
+            tr.innerHTML = tds;
+            tbody.appendChild(tr);
+        });
+
+        // Add Event Listeners for Inputs if in Edit Mode
+        if (state.editMode) {
+            document.querySelectorAll('.score-input').forEach(input => {
+                input.addEventListener('keydown', handleScoreInput);
+            });
+        }
+    }
+
+    // Input Handling for Live Edit
+    async function handleScoreInput(e) {
+        if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const inputs = Array.from(document.querySelectorAll('.score-input'));
+            const idx = inputs.indexOf(e.target);
+            const cols = state.currentProject.subjects.length;
+
+            if (e.key === 'ArrowDown' && idx + cols < inputs.length) inputs[idx + cols].focus();
+            if (e.key === 'ArrowUp' && idx - cols >= 0) inputs[idx - cols].focus();
+            if (e.key === 'Enter') e.target.blur();
+        }
+    }
+
+    // Batch Update on Blur (Auto Save)
+    document.addEventListener('focusout', async (e) => {
+        if (e.target.classList.contains('score-input')) {
+            const val = e.target.value;
+            const sId = e.target.dataset.studentId;
+            const sub = e.target.dataset.subject;
+            
+            // Optimistic Update
+            const stu = state.studentsCache.find(s => s.id === sId);
+            if(stu) {
+                stu.scores[sub] = val;
+                // Recalculate Total locally
+                let t = 0;
+                state.currentProject.subjects.forEach(s => t += parseFloat(stu.scores[s.name] || 0));
+                stu.total = parseFloat(t.toFixed(2));
+                // Update specific row total
+                const tr = e.target.closest('tr');
+                tr.cells[tr.cells.length-2].innerText = stu.total;
+            }
+
+            // Database Update
+            try {
+                await updateDoc(doc(db, 'students', sId), { [`scores.${sub}`]: val });
+            } catch(err) {
+                console.error('Save failed', err);
+            }
+        }
+    });
+
+    // --- OTHER UI UTILS (Buttons etc.) ---
+
+    window.toggleShowAll = () => {
+        state.showAll = !state.showAll;
+        document.getElementById('btn-show-all').classList.toggle('bg-spt-primary', state.showAll);
+        document.getElementById('btn-show-all').classList.toggle('text-white', state.showAll);
+        calculateAndRender();
+    };
+
+    window.changePage = (d) => {
+        state.currentPage += d;
+        calculateAndRender();
+    };
+    
+    document.getElementById('search-box').addEventListener('keyup', calculateAndRender);
+
+    document.getElementById('edit-mode-toggle').addEventListener('change', (e) => {
+        state.editMode = e.target.checked;
+        calculateAndRender();
+    });
+
+    window.toggleVisibility = async () => {
+        const p = state.currentProject;
+        const newVal = !p.visible;
+        try {
+            await updateDoc(doc(db, 'projects', p.id), { visible: newVal });
+            p.visible = newVal;
+            document.getElementById('btn-visibility').innerHTML = newVal 
+                ? `<i class="fas fa-eye text-green-500"></i> <span class="hidden sm:inline">แสดงผล</span>` 
+                : `<i class="fas fa-eye-slash text-slate-400"></i> <span class="hidden sm:inline text-red-600">ซ่อนผล</span>`;
+            Swal.fire({ icon: 'success', title: newVal ? 'แสดงผลแล้ว' : 'ซ่อนผลแล้ว', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false });
+        } catch (err) {
+            Swal.fire('Error', 'บันทึกไม่สำเร็จ', 'error');
+        }
+    };
+
+    window.deleteStudent = async (id) => {
+        if (!confirm('ยืนยันลบนักเรียนคนนี้?')) return;
+        try {
+            await deleteDoc(doc(db, 'students', id));
+            state.studentsCache = state.studentsCache.filter(s => s.id !== id);
+            calculateAndRender();
+            Swal.fire({ icon: 'success', title: 'ลบเรียบร้อย', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false });
+        } catch (err) {
+            Swal.fire('Error', 'ลบไม่สำเร็จ', 'error');
+        }
+    };
+
+    // --- MODAL & FORM HANDLERS (Create Project, Add Student, etc.) ---
+    // (ฟังก์ชันเหล่านี้ใช้ Logic เดิม แต่ต้องประกาศไว้ใน Module)
+    
+    window.openModal = (id) => document.getElementById(id).classList.remove('hidden', 'flex'); // Fix hidden removal
+    window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+
+    // Create Project
+    document.getElementById('form-create-project').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const subjects = [];
+        document.querySelectorAll('#subject-rows div').forEach(r => {
+            const inps = r.querySelectorAll('input');
+            subjects.push({ name: inps[0].value, max: Number(inps[1].value), weight: Number(inps[2].value), priority: Number(inps[3].value) });
+        });
+        
+        document.getElementById('loading').classList.remove('hidden');
+        try {
+            await addDoc(collection(db, 'projects'), {
+                name: fd.get('name'),
+                academicYear: fd.get('academicYear'),
+                subjects: subjects,
+                visible: false,
+                createdAt: new Date()
+            });
+            closeModal('modal-create-project');
+            e.target.reset();
+            document.getElementById('subject-rows').innerHTML = '';
+            if(window.location.hash.includes('admin')) loadAdminProjects();
+            Swal.fire('Success', 'สร้างโครงการเรียบร้อย', 'success');
+        } finally {
+            document.getElementById('loading').classList.add('hidden');
+        }
+    });
+
+    window.addSubjectRow = (containerId) => {
+        const div = document.createElement('div');
+        div.className = "flex gap-2 items-center";
+        div.innerHTML = `
+            <input type="text" placeholder="ชื่อวิชา" class="flex-grow p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" required>
+            <input type="number" placeholder="เต็ม" class="w-16 p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-center" required>
+            <input type="number" placeholder="นน." class="w-14 p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-center" required>
+            <input type="number" placeholder="สำคัญ" class="w-14 p-2 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-center" title="ลำดับความสำคัญ (น้อย=สำคัญมาก)">
+            <button type="button" onclick="this.parentElement.remove()" class="text-red-400 w-8 h-8 hover:bg-red-50 rounded-lg"><i class="fas fa-times"></i></button>
+        `;
+        document.getElementById(containerId).appendChild(div);
+    };
+
+    // Add Student
+    document.getElementById('form-add-student').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const data = Object.fromEntries(fd.entries());
+        data.projectId = state.currentProject.id;
+        data.scores = {};
+        
+        try {
+            await addDoc(collection(db, 'students'), data);
+            closeModal('modal-add-student');
+            e.target.reset();
+            loadStudents(state.currentProject.id);
+            Swal.fire({icon:'success', title:'เพิ่มเรียบร้อย', toast:true, position:'top-end', timer:1500, showConfirmButton:false});
+        } catch(err) {
+            Swal.fire('Error', 'เพิ่มไม่สำเร็จ', 'error');
+        }
+    });
+    
+    // Import Functions (CSV) - เก็บไว้เหมือนเดิมแต่ย่อโค้ด
+    window.importStudents = (input) => {
+        if(!input.files[0]) return;
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const wb = XLSX.read(e.target.result, {type: 'binary'});
+            const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            if(!data.length) return;
+            document.getElementById('loading').classList.remove('hidden');
+            const batch = writeBatch(db);
+            let count = 0;
+            data.forEach(row => {
+                 const ref = doc(collection(db, 'students'));
+                 batch.set(ref, {
+                     projectId: state.currentProject.id,
+                     examId: String(row['ExamID']||row['เลขที่สอบ']||''),
+                     citizenId: String(row['CitizenID']||row['เลขปชช']||''),
+                     prefix: row['Prefix']||'',
+                     name: row['Name']||'',
+                     surname: row['Surname']||'',
+                     oldSchool: row['School']||'',
+                     scores: {}
+                 });
+                 count++;
+            });
+            await batch.commit();
+            loadStudents(state.currentProject.id);
+            document.getElementById('loading').classList.add('hidden');
+            Swal.fire('Success', `นำเข้า ${count} รายชื่อเรียบร้อย`, 'success');
+        };
+        reader.readAsBinaryString(input.files[0]);
+        input.value = '';
+    };
+
+    window.importScores = (input) => {
+        if(!input.files[0]) return;
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const wb = XLSX.read(e.target.result, {type: 'binary'});
+            const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            if(!data.length) return;
+            
+            document.getElementById('loading').classList.remove('hidden');
+            const batchUpdates = [];
+            data.forEach(row => {
+                const eid = String(row['ExamID']||row['เลขที่สอบ']);
+                const stu = state.studentsCache.find(s => s.examId === eid);
+                if(stu) {
+                    state.currentProject.subjects.forEach(sub => {
+                        if(row[sub.name] !== undefined) {
+                            stu.scores[sub.name] = row[sub.name];
+                        }
+                    });
+                    batchUpdates.push(updateDoc(doc(db, 'students', stu.id), { scores: stu.scores }));
+                }
+            });
+            await Promise.all(batchUpdates);
+            calculateAndRender();
+            document.getElementById('loading').classList.add('hidden');
+            Swal.fire('Success', 'นำเข้าคะแนนเรียบร้อย', 'success');
+        };
+        reader.readAsBinaryString(input.files[0]);
+        input.value = '';
+    };
+    
+    // Export CSV
+     window.exportCSV = () => {
+        const p = state.currentProject;
+        const d = state.studentsCache.map(s => {
+            const r = { 'Rank': s.rank, 'ExamID': s.examId, 'Name': `${s.prefix}${s.name} ${s.surname}` };
+            p.subjects.forEach(sub => r[sub.name] = s.scores[sub.name] || 0);
+            r['Total'] = s.total;
+            return r;
+        });
+        const ws = XLSX.utils.json_to_sheet(d);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Scores");
+        XLSX.writeFile(wb, `${p.name}.csv`);
+    };
+    
+    window.clearProjectData = async () => {
+        if(!confirm('ยืนยันลบรายชื่อนักเรียนทั้งหมด?')) return;
+        document.getElementById('loading').classList.remove('hidden');
+        const batch = writeBatch(db);
+        state.studentsCache.forEach(s => batch.delete(doc(db, 'students', s.id)));
+        await batch.commit();
+        loadStudents(state.currentProject.id);
+        document.getElementById('loading').classList.add('hidden');
+    }
+
+    window.deleteCurrentProject = async () => {
+        if(!confirm('ยืนยันลบโครงการนี้? การกระทำนี้ไม่สามารถย้อนกลับได้')) return;
+        await deleteDoc(doc(db, 'projects', state.currentProject.id));
+        window.router.navigate('admin');
+    }
+</script>
 </body>
 </html>
-
-
