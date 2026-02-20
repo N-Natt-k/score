@@ -1125,6 +1125,109 @@ function calculateAndRender() {
     document.querySelector('button[onclick="changePage(-1)"]').disabled = state.currentPage === 1;
     document.querySelector('button[onclick="changePage(1)"]').disabled = state.currentPage === tPages || tPages === 0;
 }
+// 1. ฟังก์ชันสำหรับบันทึกคะแนนเมื่อพิมพ์หรือแก้ไขเสร็จ (onblur)
+window.updateScoreInline = async (studentId, subjectName, value) => {
+    let val = parseFloat(value);
+    if (isNaN(val)) val = 0; // ถ้าช่องว่างหรือพิมพ์ตัวหนังสือ ให้กลายเป็น 0
+
+    // หาตัวนักเรียนในหน่วยความจำ
+    const student = state.studentsCache.find(s => s.id === studentId);
+    if (!student) return;
+
+    // ถ้าคะแนนเท่าเดิม ไม่ต้องบันทึกให้เปลืองโควต้า Database
+    if (student.scores[subjectName] === val) return;
+
+    // อัปเดตคะแนนใหม่ลงหน่วยความจำ
+    student.scores[subjectName] = val;
+
+    try {
+        // บันทึกลง Firebase Firestore (สมมติว่าคุณใช้ collection ชื่อ 'students')
+        const studentRef = doc(db, 'students', studentId);
+        await updateDoc(studentRef, {
+            [`scores.${subjectName}`]: val
+        });
+        
+        // คำนวณคะแนนรวมและโหลดตารางใหม่
+        calculateAndRender();
+    } catch (error) {
+        console.error("เกิดข้อผิดพลาดในการบันทึกคะแนน: ", error);
+        CustomSwal.fire('Error', 'ไม่สามารถบันทึกคะแนนได้ กรุณาลองใหม่', 'error');
+    }
+};
+
+// 2. ฟังก์ชันสำหรับวางคะแนนจากการคัดลอก Excel / Sheets หลายๆ ช่อง (onpaste)
+window.handlePaste = async (event) => {
+    event.preventDefault(); // หยุดการวางข้อมูลแบบปกติ
+
+    // ดึงข้อมูลที่ Copy มาจาก Clipboard
+    const clipboardData = event.clipboardData || window.clipboardData;
+    const pastedText = clipboardData.getData('text');
+    
+    if (!pastedText) return;
+
+    // แยกข้อมูลตามแถว (Enter) และคอลัมน์ (Tab) ตามรูปแบบของ Excel
+    const rows = pastedText.trim().split('\n').map(row => row.split('\t'));
+    
+    // หาตำแหน่งกล่อง Input ที่เรากำลังกดวาง
+    const startInput = event.target;
+    const startRowTr = startInput.closest('tr');
+    
+    // หาว่าเราอยู่แถวที่เท่าไหร่และคอลัมน์ที่เท่าไหร่ของตาราง
+    const tbody = startRowTr.parentElement;
+    const trs = Array.from(tbody.children);
+    const startRowIndex = trs.indexOf(startRowTr);
+    
+    const inputsInStartRow = Array.from(startRowTr.querySelectorAll('.score-input'));
+    const startColIndex = inputsInStartRow.indexOf(startInput);
+
+    // วนลูปข้อมูลที่คัดลอกมา เพื่อใส่ลงในกล่อง Input ตามลำดับตาราง
+    for (let i = 0; i < rows.length; i++) {
+        if (startRowIndex + i >= trs.length) break; // ถ้าวางทะลุตารางให้หยุด
+        
+        const tr = trs[startRowIndex + i];
+        const inputs = Array.from(tr.querySelectorAll('.score-input'));
+        
+        for (let j = 0; j < rows[i].length; j++) {
+            if (startColIndex + j >= inputs.length) break; // ถ้าวางทะลุคอลัมน์ให้หยุด
+            
+            const input = inputs[startColIndex + j];
+            let val = parseFloat(rows[i][j].trim());
+            if (isNaN(val)) val = 0;
+            
+            input.value = val;
+            
+            // สั่งให้ input จำลองการคลิกออก (blur) เพื่อให้มันกระตุ้นฟังก์ชัน updateScoreInline ด้านบนไปเซฟลง Database อัตโนมัติ
+            input.dispatchEvent(new Event('blur'));
+        }
+    }
+};
+
+// 3. ฟังก์ชันสำหรับกด Enter แล้วให้เด้งลงไปช่องด้านล่าง (onkeydown)
+window.handleEnter = (event, element) => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        element.blur(); // กระตุ้นให้บันทึกคะแนน
+        
+        // หา Input ในแถวถัดไป แต่อยู่ในวิชา(คอลัมน์)เดียวกัน
+        const currentTr = element.closest('tr');
+        const tbody = currentTr.parentElement;
+        const trs = Array.from(tbody.children);
+        const currentRowIndex = trs.indexOf(currentTr);
+        
+        const inputsInRow = Array.from(currentTr.querySelectorAll('.score-input'));
+        const colIndex = inputsInRow.indexOf(element);
+        
+        // ถ้ามีแถวถัดไป ให้เด้งไปโฟกัส
+        if (currentRowIndex + 1 < trs.length) {
+            const nextTr = trs[currentRowIndex + 1];
+            const nextInputs = Array.from(nextTr.querySelectorAll('.score-input'));
+            if (nextInputs[colIndex]) {
+                nextInputs[colIndex].focus();
+                nextInputs[colIndex].select();
+            }
+        }
+    }
+};
 
         // --- PASTE LOGIC ---
         window.handlePaste = async (e) => {
