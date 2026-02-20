@@ -1315,19 +1315,22 @@ window.printPDF = () => {
         return CustomSwal.fire('Info', 'ไม่มีข้อมูลสำหรับพิมพ์', 'info');
     }
 
-    // เก็บโหมดปัจจุบันไว้ก่อน แล้วบังคับตารางเป็นโหมดจัดลำดับ + แสดงทุกคน
+    // 1. เก็บค่าการแสดงผลเดิม และปรับโหมดให้แสดงนักเรียนทั้งหมด + เรียงตามลำดับที่
     const oldView = state.projectView;
     const oldShowAll = state.showAll;
     state.projectView = 'ranking';
     state.showAll = true;
     calculateAndRender();
 
-    // รอ 0.5 วินาทีให้ตารางสร้างเสร็จ แล้วดึง HTML ไปใส่ในหน้าพิมพ์
+    // 2. หน่วงเวลา 0.8 วินาทีให้ตารางโหลดครบ แล้วดึงตารางไปสร้างหน้ากระดาษ A4
     setTimeout(() => {
         const tableContainer = document.querySelector('.bg-white.flex-grow.overflow-auto table');
         if(!tableContainer) return;
         
+        // ดึง HTML ของตารางมา
         const tableHtml = tableContainer.outerHTML;
+        
+        // สร้างหน้าต่างใหม่สำหรับการพิมพ์
         const printWin = window.open('', '', 'width=1000,height=800');
         
         printWin.document.write(`
@@ -1335,49 +1338,76 @@ window.printPDF = () => {
             <html lang="th">
             <head>
                 <meta charset="UTF-8">
-                <title>สรุปลำดับคะแนน - ${p.name}</title>
+                <title>บัญชีแนบท้ายประกาศ - ${p.name}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
                 <style>
-                    body { font-family: 'Sarabun', sans-serif; padding: 20px; color: #222; }
-                    .header { text-align: center; margin-bottom: 20px; }
-                    .header h2 { margin: 0; font-size: 24px; color: #111; }
-                    .header p { margin: 5px 0; color: #555; font-size: 16px; }
-                    table { border-collapse: collapse; width: 100%; font-size: 14px; }
-                    th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: center; }
-                    th { background-color: #f4f4f4; font-weight: bold; }
-                    td:nth-child(3) { text-align: left; } /* ให้ชื่อชิดซ้าย */
-                    input { border: none; background: transparent; text-align: center; font-family: 'Sarabun', sans-serif; pointer-events: none; width: 100%; }
+                    /* ตั้งค่าฟอนต์และระยะห่าง (ใช้ Sarabun แบบเอกสารราชการ) */
+                    body { font-family: 'Sarabun', sans-serif; padding: 1.5cm 2cm; color: #000; font-size: 15px; line-height: 1.4; }
+                    
+                    /* ส่วนหัวกระดาษแบบหน้าที่ 2 */
+                    .header { text-align: center; margin-bottom: 20px; font-weight: bold; }
+                    .header p { margin: 2px 0; font-size: 16px; }
+                    
+                    /* ส่วนของตาราง */
+                    table { border-collapse: collapse; width: 100%; margin-bottom: 15px; font-size: 14px; border: 1.5px solid #000; }
+                    th, td { border: 1px solid #000; padding: 6px 4px; text-align: center; }
+                    th { font-weight: bold; }
+                    
+                    /* จัดชื่อให้ชิดซ้าย (สมมติว่าเป็นคอลัมน์ที่ 3) */
+                    td:nth-child(3) { text-align: left; padding-left: 10px; }
+                    
+                    /* จัดการกล่อง input (ถ้ามีตอนกดพิมพ์) ให้กลายเป็นข้อความธรรมดา */
+                    input { border: none; background: transparent; text-align: center; font-family: 'Sarabun', sans-serif; pointer-events: none; width: 100%; color: #000; font-size: 14px; }
+                    
+                    /* ส่วนท้ายกระดาษ (หมายเหตุ) แบบหน้าที่ 2 */
+                    .footer-note { margin-top: 15px; font-size: 14px; }
+                    .footer-note .right-align { text-align: right; margin-bottom: 15px; font-weight: normal; }
+                    .footer-note .remark-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; }
+                    .footer-note p { margin: 2px 0; padding-left: 20px; text-indent: -20px; }
+                    
+                    /* การตั้งค่าหน้ากระดาษเมื่อกดสั่ง Print */
                     @media print {
-                        @page { size: A4 portrait; margin: 1cm; }
-                        body { padding: 0; }
+                        @page { size: A4 portrait; margin: 0; }
+                        body { padding: 1.5cm 1.5cm; }
                     }
                 </style>
             </head>
             <body>
                 <div class="header">
-                    <h2>รายงานสรุปลำดับคะแนนสอบ</h2>
-                    <p>โครงการ: ${p.name} | ปีการศึกษา: ${p.academicYear || '2568'}</p>
+                    <p>บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
+                    <p>นักเรียนห้องเรียนพิเศษวิทยาศาสตร์ คณิตศาสตร์ เทคโนโลยี และสิ่งแวดล้อม (SMTE)</p>
+                    <p>ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
+                    <p>โรงเรียนสตรีพัทลุง</p>
                 </div>
+                
                 ${tableHtml}
+                
+                <div class="footer-note">
+                    <div class="right-align">(บัญชีตัวจริง)</div>
+                    <div class="remark-title">หมายเหตุ</div>
+                    <p>กรณีคะแนนรวมเท่ากัน จะจัดลำดับโดยพิจารณาจากคะแนนรวมวิชาวิทยาศาสตร์ฯ และวิชาคณิตศาสตร์เป็นลำดับแรก</p>
+                    <p>หากคะแนนสอบยังคงเท่ากันจะพิจารณาคะแนนสอบวิชาวิทยาศาสตร์ฯ วิชาคณิตศาสตร์ ตามลำดับ และหากคะแนนสอบยังคงเท่ากันให้เป็นไปตามดุลพินิจของสถานศึกษา</p>
+                </div>
             </body>
             </html>
         `);
         
         printWin.document.close();
         
-        // เมื่อหน้าใหม่โหลดเสร็จ ให้เด้งหน้าต่างปริ้นท์ขึ้นมา
+        // 3. เมื่อระบบสร้างหน้ากระดาษเสร็จ ให้สั่ง Print ทันที
         printWin.onload = function() {
             printWin.focus();
-            printWin.print(); // สั่งพิมพ์ตรงนี้ (ผู้ใช้เลือก Save as PDF ได้เลย)
+            printWin.print();
             printWin.close();
             
-            // คืนค่าหน้าตารางให้กลับมาเป็นสถานะก่อนที่จะกดพิมพ์
+            // 4. คืนค่าตารางกลับเป็นเหมือนเดิม
             state.projectView = oldView;
             state.showAll = oldShowAll;
             calculateAndRender();
         };
-    }, 500);
+    }, 800);
 };
+
 
         document.getElementById('form-add-student').addEventListener('submit', async (e) => {
             e.preventDefault();
