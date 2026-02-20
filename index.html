@@ -1028,7 +1028,104 @@ window.openProjectDetail = async (id) => {
             document.getElementById('loading').classList.add('hidden');
         }
 
-                        function calculateAndRender(){ const p=state.currentProject; const f=document.getElementById('search-box').value.toLowerCase(); state.studentsCache.forEach(s=>{ let t=0; p.subjects.forEach(sub=>t+=parseFloat(s.scores[sub.name]||0)); s.total=parseFloat(t.toFixed(2)); }); const sFn=(a,b)=>{if(b.total!==a.total)return b.total-a.total;const br=p.subjects.filter(s=>s.priority).sort((x,y)=>x.priority-y.priority);for(const sb of br){const sa=parseFloat(a.scores[sb.name]||0);const sbv=parseFloat(b.scores[sb.name]||0);if(sbv!==sa)return sbv-sa;}return 0;}; const rList=[...state.studentsCache].sort(sFn); rList.forEach((s,i)=>{if(i>0&&sFn(rList[i-1],s)===0)s.rank=rList[i-1].rank;else s.rank=i+1;}); let dList=[...state.studentsCache]; if(state.projectView==='ranking') dList.sort(sFn); else dList.sort((a,b)=>a.examId.localeCompare(b.examId,undefined,{numeric:true})); const filt=dList.filter(s=>!f||`${s.prefix}${s.name} ${s.surname}`.toLowerCase().includes(f)||s.examId.includes(f)); const tRows=filt.length; const tPages=Math.ceil(tRows/state.rowsPerPage); if(state.currentPage>tPages)state.currentPage=tPages||1; const st=state.showAll?0:(state.currentPage-1)*state.rowsPerPage; const disp=filt.slice(st,state.showAll?tRows:st+state.rowsPerPage); const hRow=document.querySelector('#table-header-row'); const rTit=state.projectView==='ranking'?'ลำดับที่':'ที่'; hRow.innerHTML=`<th class="px-6 py-4 w-20 text-center border-b border-slate-200 text-spt-primary font-bold">${rTit}</th><th class="px-6 py-4 border-b border-slate-200">เลขที่สอบ</th><th class="px-6 py-4 border-b border-slate-200">ชื่อ-สกุล</th>`; p.subjects.forEach(s=>hRow.innerHTML+=`<th class="px-4 py-4 text-center bg-slate-50/50 border-b border-slate-200"><div class="flex flex-col items-center"><span class="text-xs font-bold text-slate-700">${s.name}</span><span class="text-[10px] text-slate-400">เต็ม ${s.max}</span></div></th>`); hRow.innerHTML+=`<th class="px-6 py-4 text-center border-b border-slate-200">รวม</th><th class="px-6 py-4 text-center border-b border-slate-200">ลบ</th>`; const body=document.getElementById('table-body'); body.innerHTML=''; disp.forEach((s,i)=>{ const tr=document.createElement('tr'); tr.className="hover:bg-slate-50/80 transition-colors border-b border-slate-50"; const c1=state.projectView==='ranking'?`<span class="font-bold text-spt-primary">${s.rank}</span>`:`<span class="text-slate-400">${st+i+1}</span>`; let h=`<td class="px-6 py-4 text-center text-sm">${c1}</td><td class="px-6 py-4 font-mono font-bold text-slate-600">${s.examId}</td><td class="px-6 py-4 font-medium text-slate-700">${s.prefix}${s.name} ${s.surname}</td>`; p.subjects.forEach(sub=>{ const v=s.scores[sub.name]||0; const d=state.editMode?`<input type="text" value="${v}" class="score-input w-full text-center p-1.5 border border-spt-primary/30 rounded-lg focus:ring-2 focus:ring-spt-primary outline-none bg-white font-mono text-sm" data-student-id="${s.id}" data-subject="${sub.name}" onblur="updateScoreInline('${s.id}','${sub.name}',this.value)" onkeydown="handleEnter(event,this)" onpaste="handlePaste(event)">`:`<span class="font-mono text-slate-600">${v}</span>`; h+=`<td class="px-4 py-4 text-center border-l border-dashed border-slate-100">${d}</td>`; }); h+=`<td class="px-6 py-4 text-center font-bold text-spt-primary">${s.total}</td><td class="px-6 py-4 text-center"><button onclick="deleteStudent('${s.id}')" class="text-slate-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button></td>`; tr.innerHTML=h; body.appendChild(tr); }); document.getElementById('page-info').innerText=state.showAll?`All (${tRows})`:`${state.currentPage} / ${tPages}`; }
+function calculateAndRender() {
+    const p = state.currentProject;
+    const f = document.getElementById('search-box').value.toLowerCase();
+    
+    // 1. คำนวณคะแนนรวมโดยคูณน้ำหนัก และปรับฐานให้เต็ม 100
+    state.studentsCache.forEach(s => {
+        let t = 0;
+        let fullScore = 0;
+        p.subjects.forEach(sub => {
+            const score = parseFloat(s.scores[sub.name] || 0);
+            const weight = parseFloat(sub.weight || 1);
+            const max = parseFloat(sub.max || 100);
+            
+            t += (score * weight);
+            fullScore += (max * weight);
+        });
+
+        if (fullScore > 0) {
+            s.total = parseFloat(((t / fullScore) * 100).toFixed(2));
+        } else {
+            s.total = parseFloat(t.toFixed(2));
+        }
+    });
+
+    // 2. ฟังก์ชันช่วยเรียงลำดับ (ดูคะแนนรวมก่อน ถ้าเท่ากันดูวิชาสำคัญกว่า)
+    const sFn = (a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        const br = p.subjects.filter(s => s.priority).sort((x, y) => x.priority - y.priority);
+        for (const sb of br) {
+            const sa = parseFloat(a.scores[sb.name] || 0);
+            const sbv = parseFloat(b.scores[sb.name] || 0);
+            if (sbv !== sa) return sbv - sa;
+        }
+        return 0;
+    };
+
+    const rList = [...state.studentsCache].sort(sFn);
+    rList.forEach((s, i) => {
+        if (i > 0 && sFn(rList[i - 1], s) === 0) s.rank = rList[i - 1].rank;
+        else s.rank = i + 1;
+    });
+
+    let dList = [...state.studentsCache];
+    if (state.projectView === 'ranking') dList.sort(sFn);
+    else dList.sort((a, b) => a.examId.localeCompare(b.examId, undefined, { numeric: true }));
+
+    const filt = dList.filter(s => !f || `${s.prefix}${s.name} ${s.surname}`.toLowerCase().includes(f) || s.examId.includes(f));
+    const tRows = filt.length;
+    const tPages = Math.ceil(tRows / state.rowsPerPage);
+    if (state.currentPage > tPages) state.currentPage = tPages || 1;
+    
+    const st = state.showAll ? 0 : (state.currentPage - 1) * state.rowsPerPage;
+    const disp = filt.slice(st, state.showAll ? tRows : st + state.rowsPerPage);
+    
+    const hRow = document.querySelector('#table-header-row');
+    const rTit = state.projectView === 'ranking' ? 'ลำดับที่' : 'ที่';
+    
+    hRow.innerHTML = `<th class="px-6 py-4 w-16 text-center border-b border-slate-200">${rTit}</th><th class="px-6 py-4 border-b border-slate-200">เลขที่สอบ</th><th class="px-6 py-4 border-b border-slate-200">ชื่อ-สกุล</th>`;
+    p.subjects.forEach(s => {
+        hRow.innerHTML += `<th class="px-6 py-4 border-b border-slate-200 text-center"><div class="flex flex-col items-center"><span>${s.name}</span><span class="text-[10px] text-slate-400 font-normal">(${s.max})</span></div></th>`;
+    });
+    hRow.innerHTML += `<th class="px-6 py-4 border-b border-slate-200 text-center text-spt-primary bg-spt-primary/5">รวม (100)</th>`;
+
+    const tb = document.getElementById('table-body');
+    tb.innerHTML = '';
+    
+    disp.forEach((s, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-50 transition-colors group";
+        const rNum = state.projectView === 'ranking' ? s.rank : (st + idx + 1);
+        
+        let html = `<td class="px-6 py-3 text-center font-bold text-slate-400 group-hover:text-spt-primary">${rNum}</td>
+                    <td class="px-6 py-3 font-mono text-slate-600">${s.examId}</td>
+                    <td class="px-6 py-3 font-medium text-slate-800">${s.prefix}${s.name} ${s.surname}</td>`;
+        
+        p.subjects.forEach(sub => {
+            const val = s.scores[sub.name] || '';
+            if (state.editMode) {
+                html += `<td class="px-2 py-2 text-center"><input type="number" class="score-input w-16 text-center p-1.5 border border-slate-200 rounded-lg focus:border-spt-primary focus:ring-1 focus:ring-spt-primary bg-white transition-all shadow-sm" value="${val}" data-student-id="${s.id}" data-subject="${sub.name}" onblur="saveScore('${s.id}', '${sub.name}', this.value)" onkeypress="handleEnter(event, this)"></td>`;
+            } else {
+                html += `<td class="px-6 py-3 text-center text-slate-600">${val || '-'}</td>`;
+            }
+        });
+        
+        html += `<td class="px-6 py-3 text-center font-bold text-spt-primary bg-spt-primary/5">${s.total}</td>`;
+        if (state.editMode) {
+            html += `<td class="px-4 py-3 text-center"><button onclick="deleteStudent('${s.id}')" class="text-slate-300 hover:text-red-500 hover:bg-red-50 w-8 h-8 rounded-lg transition-all"><i class="fas fa-trash"></i></button></td>`;
+        }
+        tr.innerHTML = html;
+        tb.appendChild(tr);
+    });
+
+    document.getElementById('page-info').innerText = `หน้า ${state.currentPage} / ${tPages || 1}`;
+    document.getElementById('pagination-controls').classList.toggle('hidden', state.showAll);
+    document.querySelector('button[onclick="changePage(-1)"]').disabled = state.currentPage === 1;
+    document.querySelector('button[onclick="changePage(1)"]').disabled = state.currentPage === tPages || tPages === 0;
+}
+
         // --- PASTE LOGIC ---
         window.handlePaste = async (e) => {
             e.preventDefault();
@@ -1212,6 +1309,75 @@ window.openProjectDetail = async (id) => {
         };
 
                 window.exportCSV=()=>{const p=state.currentProject;const d=state.studentsCache.map(s=>{const r={'Rank':s.rank,'ExamID':s.examId,'Name':`${s.prefix}${s.name} ${s.surname}`};p.subjects.forEach(sub=>r[sub.name]=s.scores[sub.name]||0);r['Total']=s.total;return r;});const ws=XLSX.utils.json_to_sheet(d);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Scores");XLSX.writeFile(wb,`${p.name}.csv`);};
+window.printPDF = () => {
+    const p = state.currentProject;
+    if (!p || state.studentsCache.length === 0) {
+        return CustomSwal.fire('Info', 'ไม่มีข้อมูลสำหรับพิมพ์', 'info');
+    }
+
+    // เก็บโหมดปัจจุบันไว้ก่อน แล้วบังคับตารางเป็นโหมดจัดลำดับ + แสดงทุกคน
+    const oldView = state.projectView;
+    const oldShowAll = state.showAll;
+    state.projectView = 'ranking';
+    state.showAll = true;
+    calculateAndRender();
+
+    // รอ 0.5 วินาทีให้ตารางสร้างเสร็จ แล้วดึง HTML ไปใส่ในหน้าพิมพ์
+    setTimeout(() => {
+        const tableContainer = document.querySelector('.bg-white.flex-grow.overflow-auto table');
+        if(!tableContainer) return;
+        
+        const tableHtml = tableContainer.outerHTML;
+        const printWin = window.open('', '', 'width=1000,height=800');
+        
+        printWin.document.write(`
+            <!DOCTYPE html>
+            <html lang="th">
+            <head>
+                <meta charset="UTF-8">
+                <title>สรุปลำดับคะแนน - ${p.name}</title>
+                <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Sarabun', sans-serif; padding: 20px; color: #222; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .header h2 { margin: 0; font-size: 24px; color: #111; }
+                    .header p { margin: 5px 0; color: #555; font-size: 16px; }
+                    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+                    th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: center; }
+                    th { background-color: #f4f4f4; font-weight: bold; }
+                    td:nth-child(3) { text-align: left; } /* ให้ชื่อชิดซ้าย */
+                    input { border: none; background: transparent; text-align: center; font-family: 'Sarabun', sans-serif; pointer-events: none; width: 100%; }
+                    @media print {
+                        @page { size: A4 portrait; margin: 1cm; }
+                        body { padding: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h2>รายงานสรุปลำดับคะแนนสอบ</h2>
+                    <p>โครงการ: ${p.name} | ปีการศึกษา: ${p.academicYear || '2568'}</p>
+                </div>
+                ${tableHtml}
+            </body>
+            </html>
+        `);
+        
+        printWin.document.close();
+        
+        // เมื่อหน้าใหม่โหลดเสร็จ ให้เด้งหน้าต่างปริ้นท์ขึ้นมา
+        printWin.onload = function() {
+            printWin.focus();
+            printWin.print(); // สั่งพิมพ์ตรงนี้ (ผู้ใช้เลือก Save as PDF ได้เลย)
+            printWin.close();
+            
+            // คืนค่าหน้าตารางให้กลับมาเป็นสถานะก่อนที่จะกดพิมพ์
+            state.projectView = oldView;
+            state.showAll = oldShowAll;
+            calculateAndRender();
+        };
+    }, 500);
+};
 
         document.getElementById('form-add-student').addEventListener('submit', async (e) => {
             e.preventDefault();
