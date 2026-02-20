@@ -1309,148 +1309,194 @@ function calculateAndRender() {
         };
 
                 window.exportCSV=()=>{const p=state.currentProject;const d=state.studentsCache.map(s=>{const r={'Rank':s.rank,'ExamID':s.examId,'Name':`${s.prefix}${s.name} ${s.surname}`};p.subjects.forEach(sub=>r[sub.name]=s.scores[sub.name]||0);r['Total']=s.total;return r;});const ws=XLSX.utils.json_to_sheet(d);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Scores");XLSX.writeFile(wb,`${p.name}.csv`);};
-window.printPDF = () => {
+window.printPDF = async () => {
     const p = state.currentProject;
     if (!p || state.studentsCache.length === 0) {
         return CustomSwal.fire('Info', 'ไม่มีข้อมูลสำหรับพิมพ์', 'info');
     }
 
-    // 1. เก็บค่าเดิม และบังคับแสดงทุกคนเรียงตามลำดับ
-    const oldView = state.projectView;
-    const oldShowAll = state.showAll;
-    state.projectView = 'ranking';
-    state.showAll = true;
-    calculateAndRender();
+    // 1. ถามผู้ใช้ว่าต้องการรับ "ตัวจริง" กี่คน
+    const { value: acceptedCountStr } = await Swal.fire({
+        title: 'ตั้งค่าการพิมพ์ / Save as PDF',
+        text: 'ระบุจำนวนที่รับ (ตัวจริง) เพื่อแยกบัญชีสำรอง',
+        input: 'number',
+        inputValue: 30, // ค่าเริ่มต้นคือ 30 คน
+        showCancelButton: true,
+        confirmButtonText: '<i class="fas fa-print"></i> สร้าง PDF',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#ef4444',
+        inputValidator: (value) => {
+            if (!value || value <= 0) return 'กรุณาระบุจำนวนที่มากกว่า 0';
+        }
+    });
 
-    // 2. รอให้ตารางสร้างเสร็จ
-    setTimeout(() => {
-        const tableContainer = document.querySelector('.bg-white.flex-grow.overflow-auto table');
-        if(!tableContainer) return;
-        
-        // --- ส่วนที่เพิ่มใหม่: โคลนตารางมาจัดการก่อนพิมพ์ ---
-        const cloneTable = tableContainer.cloneNode(true);
-        
-        // ลบคลาสที่ทำให้ตารางล้นแนวนอน (แก้ตารางขาดในมือถือ)
-        cloneTable.classList.remove('whitespace-nowrap');
-        cloneTable.style.width = '100%';
-        
-        // แปลงช่อง input ให้เป็นข้อความธรรมดา
-        const inputs = cloneTable.querySelectorAll('input');
-        inputs.forEach(input => {
-            const span = document.createElement('span');
-            span.textContent = input.value;
-            input.parentNode.replaceChild(span, input);
+    if (!acceptedCountStr) return; // ถ้ายกเลิก ให้หยุดการทำงาน
+    const acceptedCount = parseInt(acceptedCountStr, 10);
+
+    // 2. เรียงลำดับนักเรียนทั้งหมด (ใช้ตรรกะเดิมคือ ดูคะแนนรวม -> ดูวิชาสำคัญ)
+    const sFn = (a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        const br = p.subjects.filter(s => s.priority).sort((x, y) => x.priority - y.priority);
+        for (const sb of br) {
+            const sa = parseFloat(a.scores[sb.name] || 0);
+            const sbv = parseFloat(b.scores[sb.name] || 0);
+            if (sbv !== sa) return sbv - sa;
+        }
+        return 0;
+    };
+    
+    const sortedList = [...state.studentsCache].sort(sFn);
+
+    // 3. แยกกลุ่ม "ตัวจริง" และ "สำรอง" พร้อมรันเลขลำดับใหม่
+    const realList = [];
+    const reserveList = [];
+
+    sortedList.forEach((s, i) => {
+        if (i < acceptedCount) {
+            // กลุ่มตัวจริง
+            if (realList.length > 0 && sFn(realList[realList.length - 1], s) === 0) {
+                s.printRank = realList[realList.length - 1].printRank; // กรณีคะแนนและเงื่อนไขเท่ากันเป๊ะ
+            } else {
+                s.printRank = i + 1;
+            }
+            realList.push(s);
+        } else {
+            // กลุ่มสำรอง (เริ่มนับ 1 ใหม่)
+            const resIndex = i - acceptedCount;
+            if (reserveList.length > 0 && sFn(reserveList[reserveList.length - 1], s) === 0) {
+                s.printRank = reserveList[reserveList.length - 1].printRank;
+            } else {
+                s.printRank = resIndex + 1;
+            }
+            reserveList.push(s);
+        }
+    });
+
+    // 4. สร้าง HTML ของตารางโดยตรง (เพื่อความสมบูรณ์และใส่หัวข้อแทรกได้)
+    const colCount = 5 + p.subjects.length; // จำนวนคอลัมน์ทั้งหมด
+    let tableHtml = `<table style="border-collapse: collapse; width: 100%; table-layout: auto; margin-bottom: 15px;">`;
+    
+    // สร้าง หัวกระดาษ และ หัวตาราง (thead) เพื่อให้เล่นซ้ำทุกหน้า
+    tableHtml += `
+        <thead style="display: table-header-group;">
+            <tr>
+                <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 20px;">
+                    <div style="text-align: center; font-weight: bold; font-size: 16px; line-height: 1.4;">
+                        <p style="margin: 2px 0;">บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
+                        <p style="margin: 2px 0;">นักเรียนห้องเรียนพิเศษวิทยาศาสตร์ คณิตศาสตร์ เทคโนโลยี และสิ่งแวดล้อม (SMTE)</p>
+                        <p style="margin: 2px 0;">ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
+                        <p style="margin: 2px 0;">โรงเรียนสตรีพัทลุง</p>
+                    </div>
+                </th>
+            </tr>
+            <tr>
+                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ลำดับที่</th>
+                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">เลขประจำตัวสอบ</th>
+                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ชื่อ-สกุล</th>`;
+    p.subjects.forEach(sub => {
+        tableHtml += `<th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">${sub.name}</th>`;
+    });
+    tableHtml += `
+                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">รวม</th>
+                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">หมายเหตุ</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    // วนลูปสร้างแถวสำหรับ "ตัวจริง"
+    realList.forEach(s => {
+        tableHtml += `<tr>
+            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
+            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.examId}</td>
+            <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>`;
+        p.subjects.forEach(sub => {
+            tableHtml += `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`;
         });
+        tableHtml += `
+            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; font-weight: bold;">${s.total}</td>
+            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;"></td>
+        </tr>`;
+    });
 
-        // ล้างคลาส CSS เดิมของ Tailwind ออกจาก th และ td ป้องกันหน้าตาเพี้ยน
-        cloneTable.querySelectorAll('th, td').forEach(cell => {
-            cell.removeAttribute('class');
-        });
-
-        // --- ส่วนที่แก้ปัญหา "หัวกระดาษมีทุกหน้า" ---
-        // นำหัวข้อประกาศไปแทรกไว้บรรทัดแรกสุดของ <thead> 
-        const thead = cloneTable.querySelector('thead');
-        const colCount = thead.querySelectorAll('tr:last-child th, tr:last-child td').length || 15;
-        const titleTr = document.createElement('tr');
-        titleTr.innerHTML = `
-            <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 20px;">
-                <div style="text-align: center; font-weight: bold; font-size: 16px; line-height: 1.4;">
-                    <p style="margin: 2px 0;">บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
-                    <p style="margin: 2px 0;">นักเรียนห้องเรียนพิเศษวิทยาศาสตร์ คณิตศาสตร์ เทคโนโลยี และสิ่งแวดล้อม (SMTE)</p>
-                    <p style="margin: 2px 0;">ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
-                    <p style="margin: 2px 0;">โรงเรียนสตรีพัทลุง</p>
-                </div>
-            </th>
+    // หากมีบัญชีสำรอง ให้สร้างแถบกั้นและวนลูปสร้างแถวสำหรับ "สำรอง"
+    if (reserveList.length > 0) {
+        tableHtml += `
+            <tr>
+                <td colspan="${colCount}" style="border: 1px solid #000; padding: 8px 4px; text-align: center; font-weight: bold; background-color: #e2e8f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                    *** บัญชีสำรอง ***
+                </td>
+            </tr>
         `;
-        thead.insertBefore(titleTr, thead.firstChild);
+        reserveList.forEach(s => {
+            tableHtml += `<tr>
+                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
+                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.examId}</td>
+                <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>`;
+            p.subjects.forEach(sub => {
+                tableHtml += `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`;
+            });
+            tableHtml += `
+                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; font-weight: bold;">${s.total}</td>
+                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; color: #555;">สำรองลำดับที่ ${s.printRank}</td>
+            </tr>`;
+        });
+    }
 
-        // นำ HTML ที่ปรับแก้แล้วไปใช้
-        const tableHtml = cloneTable.outerHTML;
-        
-        const printWin = window.open('', '', 'width=1000,height=800');
-        
-        printWin.document.write(`
-            <!DOCTYPE html>
-            <html lang="th">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>บัญชีแนบท้ายประกาศ - ${p.name}</title>
-                <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-                <style>
-                    /* ตั้งค่าฟอนต์ */
-                    body { font-family: 'Sarabun', sans-serif; color: #000; font-size: 13px; margin: 0; padding: 20px; }
-                    
-                    /* การตั้งค่าตาราง */
-                    table { 
-                        border-collapse: collapse; 
-                        width: 100%; 
-                        table-layout: auto; 
-                        margin-bottom: 15px; 
-                    }
-                    /* โค้ดสำคัญที่สั่งให้ <thead> เล่นซ้ำทุกหน้าเมื่อขึ้นหน้าใหม่ */
-                    thead { display: table-header-group; } 
-                    tr { page-break-inside: avoid; }
-                    
-                    /* เส้นขอบตาราง และให้ข้อความตัดบรรทัดได้ (แก้ตารางขาด) */
-                    th, td { 
-                        border: 1px solid #000; 
-                        padding: 6px 4px; 
-                        text-align: center; 
-                        word-wrap: break-word; 
-                    }
-                    th { font-weight: bold; }
-                    
-                    /* จัดชื่อให้ชิดซ้ายและอนุญาตให้ขึ้นบรรทัดใหม่ */
-                    td:nth-child(3) { 
-                        text-align: left; 
-                        padding-left: 8px; 
-                        white-space: normal; 
-                    }
-                    
-                    /* หมายเหตุท้ายเอกสาร */
-                    .footer-note { margin-top: 15px; font-size: 13px; page-break-inside: avoid; }
-                    .footer-note .right-align { text-align: right; margin-bottom: 10px; }
-                    .footer-note .remark-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; }
-                    .footer-note p { margin: 2px 0; padding-left: 20px; text-indent: -20px; }
-                    
-                    /* จัดระยะขอบหน้ากระดาษเมื่อพิมพ์ */
-                    @media print {
-                        @page { size: A4 portrait; margin: 1.5cm; }
-                        body { padding: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                ${tableHtml}
+    tableHtml += `</tbody></table>`;
+
+    // 5. สร้างหน้าจอสำหรับเตรียม Print
+    const printWin = window.open('', '', 'width=1000,height=800');
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html lang="th">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>ประกาศผลสอบ - ${p.name}</title>
+            <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+            <style>
+                body { font-family: 'Sarabun', sans-serif; color: #000; font-size: 13.5px; margin: 0; padding: 20px; }
+                tr { page-break-inside: avoid; }
                 
-                <div class="footer-note">
-                    <div class="right-align">(บัญชีตัวจริง)</div>
-                    <div class="remark-title">หมายเหตุ</div>
-                    <p>กรณีคะแนนรวมเท่ากัน จะจัดลำดับโดยพิจารณาจากคะแนนรวมวิชาวิทยาศาสตร์ฯ และวิชาคณิตศาสตร์เป็นลำดับแรก</p>
-                    <p>หากคะแนนสอบยังคงเท่ากันจะพิจารณาคะแนนสอบวิชาวิทยาศาสตร์ฯ วิชาคณิตศาสตร์ ตามลำดับ และหากคะแนนสอบยังคงเท่ากันให้เป็นไปตามดุลพินิจของสถานศึกษา</p>
-                </div>
-            </body>
-            </html>
-        `);
-        
-        printWin.document.close();
-        
-        // รอให้ฟอนต์โหลดเสร็จสมบูรณ์ก่อนปริ้น (ป้องกันฟอนต์เพี้ยนในมือถือ)
-        printWin.onload = function() {
-            setTimeout(() => {
-                printWin.focus();
-                printWin.print();
-                printWin.close();
+                /* ส่วนหมายเหตุท้ายเอกสาร */
+                .footer-note { margin-top: 15px; font-size: 13.5px; page-break-inside: avoid; }
+                .footer-note .right-align { text-align: right; margin-bottom: 10px; }
+                .footer-note .remark-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; }
+                .footer-note p { margin: 2px 0; padding-left: 20px; text-indent: -20px; }
                 
-                // คืนค่าตารางกลับเป็นโหมดเดิม
-                state.projectView = oldView;
-                state.showAll = oldShowAll;
-                calculateAndRender();
-            }, 500); 
-        };
-    }, 800);
+                @media print {
+                    @page { size: A4 portrait; margin: 1.5cm; }
+                    body { padding: 0; }
+                    /* บังคับให้สีพื้นหลังแถบ "บัญชีสำรอง" ติดไปด้วย */
+                    td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                }
+            </style>
+        </head>
+        <body>
+            ${tableHtml}
+            <div class="footer-note">
+                <div class="right-align">(บัญชีตัวจริง และ สำรอง)</div>
+                <div class="remark-title">หมายเหตุ</div>
+                <p>กรณีคะแนนรวมเท่ากัน จะจัดลำดับโดยพิจารณาจากคะแนนรวมวิชาวิทยาศาสตร์ฯ และวิชาคณิตศาสตร์เป็นลำดับแรก</p>
+                <p>หากคะแนนสอบยังคงเท่ากันจะพิจารณาคะแนนสอบวิชาวิทยาศาสตร์ฯ วิชาคณิตศาสตร์ ตามลำดับ และหากคะแนนสอบยังคงเท่ากันให้เป็นไปตามดุลพินิจของสถานศึกษา</p>
+            </div>
+        </body>
+        </html>
+    `);
+    
+    printWin.document.close();
+    
+    // รอให้โหลดเสร็จและสั่ง Print ทันที
+    printWin.onload = function() {
+        setTimeout(() => {
+            printWin.focus();
+            printWin.print(); // หน้าต่าง Print จะเด้งขึ้นมา ให้เลือกปลายทางเป็น "Save as PDF"
+            printWin.close();
+        }, 500); 
+    };
 };
+
 
 
 
