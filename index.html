@@ -1330,10 +1330,10 @@ window.printPDF = async () => {
         }
     });
 
-    if (!acceptedCountStr) return; // ถ้ายกเลิก ให้หยุดการทำงาน
+    if (!acceptedCountStr) return; 
     const acceptedCount = parseInt(acceptedCountStr, 10);
 
-    // 2. เรียงลำดับนักเรียนทั้งหมด (ใช้ตรรกะเดิมคือ ดูคะแนนรวม -> ดูวิชาสำคัญ)
+    // 2. เรียงลำดับนักเรียนทั้งหมด
     const sFn = (a, b) => {
         if (b.total !== a.total) return b.total - a.total;
         const br = p.subjects.filter(s => s.priority).sort((x, y) => x.priority - y.priority);
@@ -1347,21 +1347,19 @@ window.printPDF = async () => {
     
     const sortedList = [...state.studentsCache].sort(sFn);
 
-    // 3. แยกกลุ่ม "ตัวจริง" และ "สำรอง" พร้อมรันเลขลำดับใหม่
+    // 3. แยกกลุ่ม "ตัวจริง" และ "สำรอง"
     const realList = [];
     const reserveList = [];
 
     sortedList.forEach((s, i) => {
         if (i < acceptedCount) {
-            // กลุ่มตัวจริง
             if (realList.length > 0 && sFn(realList[realList.length - 1], s) === 0) {
-                s.printRank = realList[realList.length - 1].printRank; // กรณีคะแนนและเงื่อนไขเท่ากันเป๊ะ
+                s.printRank = realList[realList.length - 1].printRank; 
             } else {
                 s.printRank = i + 1;
             }
             realList.push(s);
         } else {
-            // กลุ่มสำรอง (เริ่มนับ 1 ใหม่)
             const resIndex = i - acceptedCount;
             if (reserveList.length > 0 && sFn(reserveList[reserveList.length - 1], s) === 0) {
                 s.printRank = reserveList[reserveList.length - 1].printRank;
@@ -1372,20 +1370,21 @@ window.printPDF = async () => {
         }
     });
 
-    // 4. สร้าง HTML ของตารางโดยตรง (เพื่อความสมบูรณ์และใส่หัวข้อแทรกได้)
-    const colCount = 5 + p.subjects.length; // จำนวนคอลัมน์ทั้งหมด
+    // 4. สร้าง HTML ของตารางและ **หัวกระดาษใหม่ตามแบบที่ต้องการ**
+    const colCount = 5 + p.subjects.length; 
     let tableHtml = `<table style="border-collapse: collapse; width: 100%; table-layout: auto; margin-bottom: 15px;">`;
     
-    // สร้าง หัวกระดาษ และ หัวตาราง (thead) เพื่อให้เล่นซ้ำทุกหน้า
+    // ส่วนหัวกระดาษ (thead) - ใส่โลโก้และข้อความเรียงตามที่ระบุ
     tableHtml += `
         <thead style="display: table-header-group;">
             <tr>
                 <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 20px;">
                     <div style="text-align: center; font-weight: bold; font-size: 16px; line-height: 1.4;">
+                        <img src="https://score-teal.vercel.app/Untitled%20design%20-%203.png" alt="โลโก้โรงเรียน" style="height: 85px; margin-bottom: 10px;">
+                        
                         <p style="margin: 2px 0;">บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
-                        <p style="margin: 2px 0;">นักเรียนห้องเรียนพิเศษวิทยาศาสตร์ คณิตศาสตร์ เทคโนโลยี และสิ่งแวดล้อม (SMTE)</p>
+                        <p style="margin: 2px 0;">นักเรียน${p.name}</p>
                         <p style="margin: 2px 0;">ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
-                        <p style="margin: 2px 0;">โรงเรียนสตรีพัทลุง</p>
                     </div>
                 </th>
             </tr>
@@ -1404,7 +1403,7 @@ window.printPDF = async () => {
         <tbody>
     `;
 
-    // วนลูปสร้างแถวสำหรับ "ตัวจริง"
+    // ตารางกลุ่ม "ตัวจริง"
     realList.forEach(s => {
         tableHtml += `<tr>
             <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
@@ -1419,7 +1418,7 @@ window.printPDF = async () => {
         </tr>`;
     });
 
-    // หากมีบัญชีสำรอง ให้สร้างแถบกั้นและวนลูปสร้างแถวสำหรับ "สำรอง"
+    // ตารางกลุ่ม "สำรอง"
     if (reserveList.length > 0) {
         tableHtml += `
             <tr>
@@ -1445,7 +1444,7 @@ window.printPDF = async () => {
 
     tableHtml += `</tbody></table>`;
 
-    // 5. สร้างหน้าจอสำหรับเตรียม Print
+    // 5. สร้างหน้าต่าง Print
     const printWin = window.open('', '', 'width=1000,height=800');
     printWin.document.write(`
         <!DOCTYPE html>
@@ -1453,13 +1452,12 @@ window.printPDF = async () => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>ประกาศผลสอบ - ${p.name}</title>
+            <title>บัญชีแนบท้ายประกาศ - ${p.name}</title>
             <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
             <style>
                 body { font-family: 'Sarabun', sans-serif; color: #000; font-size: 13.5px; margin: 0; padding: 20px; }
                 tr { page-break-inside: avoid; }
                 
-                /* ส่วนหมายเหตุท้ายเอกสาร */
                 .footer-note { margin-top: 15px; font-size: 13.5px; page-break-inside: avoid; }
                 .footer-note .right-align { text-align: right; margin-bottom: 10px; }
                 .footer-note .remark-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; }
@@ -1468,7 +1466,6 @@ window.printPDF = async () => {
                 @media print {
                     @page { size: A4 portrait; margin: 1.5cm; }
                     body { padding: 0; }
-                    /* บังคับให้สีพื้นหลังแถบ "บัญชีสำรอง" ติดไปด้วย */
                     td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
             </style>
@@ -1487,15 +1484,16 @@ window.printPDF = async () => {
     
     printWin.document.close();
     
-    // รอให้โหลดเสร็จและสั่ง Print ทันที
+    // โหลดหน้าต่างเสร็จแล้วสั่ง Print
     printWin.onload = function() {
         setTimeout(() => {
             printWin.focus();
-            printWin.print(); // หน้าต่าง Print จะเด้งขึ้นมา ให้เลือกปลายทางเป็น "Save as PDF"
+            printWin.print(); 
             printWin.close();
         }, 500); 
     };
 };
+
 
 
 
