@@ -1315,25 +1315,69 @@ window.printPDF = async () => {
         return CustomSwal.fire('Info', 'ไม่มีข้อมูลสำหรับพิมพ์', 'info');
     }
 
-    // 1. ถามผู้ใช้ว่าต้องการรับ "ตัวจริง" กี่คน
-    const { value: acceptedCountStr } = await Swal.fire({
-        title: 'ตั้งค่าการพิมพ์ / Save as PDF',
-        text: 'ระบุจำนวนที่รับ (ตัวจริง) เพื่อแยกบัญชีสำรอง',
-        input: 'number',
-        inputValue: 30, // ค่าเริ่มต้นคือ 30 คน
+    // กำหนดค่าเริ่มต้น (ดึงจากฐานข้อมูลถ้าเคยบันทึกไว้)
+    const defaultCount = p.acceptedCount || 30;
+    const defaultGrade = p.gradeLevel || 'มัธยมศึกษาปีที่ 4';
+    const defaultRemark = p.remark || `กรณีคะแนนรวมเท่ากัน จะจัดลำดับโดยพิจารณาจากคะแนนรวมวิชาวิทยาศาสตร์ฯ และวิชาคณิตศาสตร์เป็นลำดับแรก\nหากคะแนนสอบยังคงเท่ากันจะพิจารณาคะแนนสอบวิชาวิทยาศาสตร์ฯ วิชาคณิตศาสตร์ ตามลำดับ และหากคะแนนสอบยังคงเท่ากันให้เป็นไปตามดุลพินิจของสถานศึกษา`;
+
+    // 1. หน้าต่าง Popup ให้ผู้ใช้กรอกข้อมูล
+    const { value: formValues } = await Swal.fire({
+        title: 'ตั้งค่าเอกสาร / บันทึก PDF',
+        html: `
+            <div style="text-align: left; font-size: 14px; font-family: 'Sarabun', sans-serif;">
+                <label class="block mb-1 font-bold text-slate-700">จำนวนรับ (ตัวจริง):</label>
+                <input id="swal-count" type="number" class="w-full p-2 border border-slate-300 rounded-lg mb-3" value="${defaultCount}">
+                
+                <label class="block mb-1 font-bold text-slate-700">ระดับชั้น (แสดงบนหัวกระดาษ):</label>
+                <input id="swal-grade" type="text" class="w-full p-2 border border-slate-300 rounded-lg mb-3" value="${defaultGrade}">
+                
+                <label class="block mb-1 font-bold text-slate-700">หมายเหตุ (แสดงท้ายกระดาษทุกหน้า):</label>
+                <textarea id="swal-remark" class="w-full p-2 border border-slate-300 rounded-lg" style="height: 100px;">${defaultRemark}</textarea>
+            </div>
+        `,
+        focusConfirm: false,
         showCancelButton: true,
-        confirmButtonText: '<i class="fas fa-print"></i> สร้าง PDF',
+        confirmButtonText: '<i class="fas fa-save"></i> บันทึก & สร้าง PDF',
         cancelButtonText: 'ยกเลิก',
         confirmButtonColor: '#ef4444',
-        inputValidator: (value) => {
-            if (!value || value <= 0) return 'กรุณาระบุจำนวนที่มากกว่า 0';
+        preConfirm: () => {
+            const count = document.getElementById('swal-count').value;
+            const grade = document.getElementById('swal-grade').value;
+            const remark = document.getElementById('swal-remark').value;
+            if (!count || parseInt(count) <= 0) {
+                Swal.showValidationMessage('กรุณาระบุจำนวนที่รับให้ถูกต้อง');
+                return false;
+            }
+            if (!grade) {
+                Swal.showValidationMessage('กรุณาระบุระดับชั้น');
+                return false;
+            }
+            return { count: parseInt(count), grade, remark };
         }
     });
 
-    if (!acceptedCountStr) return; 
-    const acceptedCount = parseInt(acceptedCountStr, 10);
+    if (!formValues) return;
+    const { count: acceptedCount, grade: gradeLevel, remark } = formValues;
 
-    // 2. เรียงลำดับนักเรียนทั้งหมด
+    // 2. บันทึกข้อมูลเข้า State และ Firebase (เพื่อให้โครงการจำค่าไว้ใช้ครั้งหน้า)
+    p.acceptedCount = acceptedCount;
+    p.gradeLevel = gradeLevel;
+    p.remark = remark;
+    
+    try {
+        // ใช้ updateDoc เพื่ออัปเดตข้อมูลของ Project เข้าฐานข้อมูล
+        if (typeof updateDoc !== 'undefined' && typeof doc !== 'undefined') {
+            await updateDoc(doc(db, 'projects', p.id), { 
+                acceptedCount: acceptedCount, 
+                gradeLevel: gradeLevel, 
+                remark: remark 
+            });
+        }
+    } catch (e) {
+        console.warn("ไม่สามารถอัปเดตลงฐานข้อมูลได้ แต่ข้อมูลจะถูกบันทึกชั่วคราว:", e);
+    }
+
+    // 3. จัดเรียงคะแนนและแยกกลุ่มตัวจริง / สำรอง
     const sFn = (a, b) => {
         if (b.total !== a.total) return b.total - a.total;
         const br = p.subjects.filter(s => s.priority).sort((x, y) => x.priority - y.priority);
@@ -1346,8 +1390,6 @@ window.printPDF = async () => {
     };
     
     const sortedList = [...state.studentsCache].sort(sFn);
-
-    // 3. แยกกลุ่ม "ตัวจริง" และ "สำรอง"
     const realList = [];
     const reserveList = [];
 
@@ -1370,81 +1412,85 @@ window.printPDF = async () => {
         }
     });
 
-    // 4. สร้าง HTML ของตารางและ **หัวกระดาษใหม่ตามแบบที่ต้องการ**
+    // 4. ฟังก์ชันสร้างหัวตาราง (Thead) และท้ายตาราง (Tfoot) แบบไดนามิก
     const colCount = 5 + p.subjects.length; 
-    let tableHtml = `<table style="border-collapse: collapse; width: 100%; table-layout: auto; margin-bottom: 15px;">`;
     
-    // ส่วนหัวกระดาษ (thead) - ใส่โลโก้และข้อความเรียงตามที่ระบุ
-    tableHtml += `
+    const buildHeader = (isReserve = false) => `
         <thead style="display: table-header-group;">
             <tr>
                 <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 20px;">
                     <div style="text-align: center; font-weight: bold; font-size: 16px; line-height: 1.4;">
                         <img src="https://score-teal.vercel.app/Untitled%20design%20-%203.png" alt="โลโก้โรงเรียน" style="height: 85px; margin-bottom: 10px;">
-                        
                         <p style="margin: 2px 0;">บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
                         <p style="margin: 2px 0;">นักเรียน${p.name}</p>
-                        <p style="margin: 2px 0;">ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
+                        <p style="margin: 2px 0;">ระดับชั้น${gradeLevel} ปีการศึกษา ${p.academicYear || '2568'}</p>
+                        ${isReserve ? `<p style="margin: 15px 0 5px 0; font-size: 17px; background-color: #f1f5f9; padding: 5px; border: 1px dashed #000;">*** บัญชีสำรอง ***</p>` : ''}
                     </div>
                 </th>
             </tr>
             <tr>
                 <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ลำดับที่</th>
                 <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">เลขประจำตัวสอบ</th>
-                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ชื่อ-สกุล</th>`;
-    p.subjects.forEach(sub => {
-        tableHtml += `<th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">${sub.name}</th>`;
-    });
-    tableHtml += `
+                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ชื่อ-สกุล</th>
+                ${p.subjects.map(sub => `<th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">${sub.name}</th>`).join('')}
                 <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">รวม</th>
                 <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">หมายเหตุ</th>
             </tr>
         </thead>
-        <tbody>
     `;
 
-    // ตารางกลุ่ม "ตัวจริง"
+    const buildFooter = (typeStr) => `
+        <tfoot style="display: table-footer-group;">
+            <tr>
+                <td colspan="${colCount}" style="border: none; padding-top: 15px; text-align: left;">
+                    <div style="font-size: 13.5px; page-break-inside: avoid;">
+                        <div style="text-align: right; margin-bottom: 10px;">(บัญชี${typeStr})</div>
+                        <div style="font-weight: bold; text-decoration: underline; margin-bottom: 5px;">หมายเหตุ</div>
+                        <div style="white-space: pre-wrap; padding-left: 20px; line-height: 1.5; font-family: 'Sarabun', sans-serif;">${remark}</div>
+                    </div>
+                </td>
+            </tr>
+        </tfoot>
+    `;
+
+    // 5. สร้าง HTML ของตารางตัวจริง
+    let tableHtml = `<table style="border-collapse: collapse; width: 100%; table-layout: auto;">`;
+    tableHtml += buildHeader(false);
+    tableHtml += buildFooter('ตัวจริง');
+    tableHtml += `<tbody>`;
     realList.forEach(s => {
         tableHtml += `<tr>
             <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
             <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.examId}</td>
-            <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>`;
-        p.subjects.forEach(sub => {
-            tableHtml += `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`;
-        });
-        tableHtml += `
+            <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>
+            ${p.subjects.map(sub => `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`).join('')}
             <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; font-weight: bold;">${s.total}</td>
             <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;"></td>
         </tr>`;
     });
+    tableHtml += `</tbody></table>`;
 
-    // ตารางกลุ่ม "สำรอง"
+    // 6. สร้าง HTML ของตารางสำรอง (หากมี) โดยบังคับให้ขึ้นหน้าใหม่ (page-break-before: always)
     if (reserveList.length > 0) {
-        tableHtml += `
-            <tr>
-                <td colspan="${colCount}" style="border: 1px solid #000; padding: 8px 4px; text-align: center; font-weight: bold; background-color: #e2e8f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
-                    *** บัญชีสำรอง ***
-                </td>
-            </tr>
-        `;
+        tableHtml += `<div style="page-break-before: always; height: 1px; width: 100%;"></div>`;
+        tableHtml += `<table style="border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 20px;">`;
+        tableHtml += buildHeader(true);
+        tableHtml += buildFooter('สำรอง');
+        tableHtml += `<tbody>`;
         reserveList.forEach(s => {
             tableHtml += `<tr>
                 <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
                 <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.examId}</td>
-                <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>`;
-            p.subjects.forEach(sub => {
-                tableHtml += `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`;
-            });
-            tableHtml += `
+                <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>
+                ${p.subjects.map(sub => `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`).join('')}
                 <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; font-weight: bold;">${s.total}</td>
                 <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; color: #555;">สำรองลำดับที่ ${s.printRank}</td>
             </tr>`;
         });
+        tableHtml += `</tbody></table>`;
     }
 
-    tableHtml += `</tbody></table>`;
-
-    // 5. สร้างหน้าต่าง Print
+    // 7. สร้างหน้าต่าง Print
     const printWin = window.open('', '', 'width=1000,height=800');
     printWin.document.write(`
         <!DOCTYPE html>
@@ -1457,27 +1503,15 @@ window.printPDF = async () => {
             <style>
                 body { font-family: 'Sarabun', sans-serif; color: #000; font-size: 13.5px; margin: 0; padding: 20px; }
                 tr { page-break-inside: avoid; }
-                
-                .footer-note { margin-top: 15px; font-size: 13.5px; page-break-inside: avoid; }
-                .footer-note .right-align { text-align: right; margin-bottom: 10px; }
-                .footer-note .remark-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; }
-                .footer-note p { margin: 2px 0; padding-left: 20px; text-indent: -20px; }
-                
                 @media print {
                     @page { size: A4 portrait; margin: 1.5cm; }
                     body { padding: 0; }
-                    td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    td, th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
             </style>
         </head>
         <body>
             ${tableHtml}
-            <div class="footer-note">
-                <div class="right-align">(บัญชีตัวจริง และ สำรอง)</div>
-                <div class="remark-title">หมายเหตุ</div>
-                <p>กรณีคะแนนรวมเท่ากัน จะจัดลำดับโดยพิจารณาจากคะแนนรวมวิชาวิทยาศาสตร์ฯ และวิชาคณิตศาสตร์เป็นลำดับแรก</p>
-                <p>หากคะแนนสอบยังคงเท่ากันจะพิจารณาคะแนนสอบวิชาวิทยาศาสตร์ฯ วิชาคณิตศาสตร์ ตามลำดับ และหากคะแนนสอบยังคงเท่ากันให้เป็นไปตามดุลพินิจของสถานศึกษา</p>
-            </div>
         </body>
         </html>
     `);
