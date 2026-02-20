@@ -1315,22 +1315,58 @@ window.printPDF = () => {
         return CustomSwal.fire('Info', 'ไม่มีข้อมูลสำหรับพิมพ์', 'info');
     }
 
-    // 1. เก็บค่าการแสดงผลเดิม และปรับโหมดให้แสดงนักเรียนทั้งหมด + เรียงตามลำดับที่
+    // 1. เก็บค่าเดิม และบังคับแสดงทุกคนเรียงตามลำดับ
     const oldView = state.projectView;
     const oldShowAll = state.showAll;
     state.projectView = 'ranking';
     state.showAll = true;
     calculateAndRender();
 
-    // 2. หน่วงเวลา 0.8 วินาทีให้ตารางโหลดครบ แล้วดึงตารางไปสร้างหน้ากระดาษ A4
+    // 2. รอให้ตารางสร้างเสร็จ
     setTimeout(() => {
         const tableContainer = document.querySelector('.bg-white.flex-grow.overflow-auto table');
         if(!tableContainer) return;
         
-        // ดึง HTML ของตารางมา
-        const tableHtml = tableContainer.outerHTML;
+        // --- ส่วนที่เพิ่มใหม่: โคลนตารางมาจัดการก่อนพิมพ์ ---
+        const cloneTable = tableContainer.cloneNode(true);
         
-        // สร้างหน้าต่างใหม่สำหรับการพิมพ์
+        // ลบคลาสที่ทำให้ตารางล้นแนวนอน (แก้ตารางขาดในมือถือ)
+        cloneTable.classList.remove('whitespace-nowrap');
+        cloneTable.style.width = '100%';
+        
+        // แปลงช่อง input ให้เป็นข้อความธรรมดา
+        const inputs = cloneTable.querySelectorAll('input');
+        inputs.forEach(input => {
+            const span = document.createElement('span');
+            span.textContent = input.value;
+            input.parentNode.replaceChild(span, input);
+        });
+
+        // ล้างคลาส CSS เดิมของ Tailwind ออกจาก th และ td ป้องกันหน้าตาเพี้ยน
+        cloneTable.querySelectorAll('th, td').forEach(cell => {
+            cell.removeAttribute('class');
+        });
+
+        // --- ส่วนที่แก้ปัญหา "หัวกระดาษมีทุกหน้า" ---
+        // นำหัวข้อประกาศไปแทรกไว้บรรทัดแรกสุดของ <thead> 
+        const thead = cloneTable.querySelector('thead');
+        const colCount = thead.querySelectorAll('tr:last-child th, tr:last-child td').length || 15;
+        const titleTr = document.createElement('tr');
+        titleTr.innerHTML = `
+            <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 20px;">
+                <div style="text-align: center; font-weight: bold; font-size: 16px; line-height: 1.4;">
+                    <p style="margin: 2px 0;">บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
+                    <p style="margin: 2px 0;">นักเรียนห้องเรียนพิเศษวิทยาศาสตร์ คณิตศาสตร์ เทคโนโลยี และสิ่งแวดล้อม (SMTE)</p>
+                    <p style="margin: 2px 0;">ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
+                    <p style="margin: 2px 0;">โรงเรียนสตรีพัทลุง</p>
+                </div>
+            </th>
+        `;
+        thead.insertBefore(titleTr, thead.firstChild);
+
+        // นำ HTML ที่ปรับแก้แล้วไปใช้
+        const tableHtml = cloneTable.outerHTML;
+        
         const printWin = window.open('', '', 'width=1000,height=800');
         
         printWin.document.write(`
@@ -1338,48 +1374,54 @@ window.printPDF = () => {
             <html lang="th">
             <head>
                 <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>บัญชีแนบท้ายประกาศ - ${p.name}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
                 <style>
-                    /* ตั้งค่าฟอนต์และระยะห่าง (ใช้ Sarabun แบบเอกสารราชการ) */
-                    body { font-family: 'Sarabun', sans-serif; padding: 1.5cm 2cm; color: #000; font-size: 15px; line-height: 1.4; }
+                    /* ตั้งค่าฟอนต์ */
+                    body { font-family: 'Sarabun', sans-serif; color: #000; font-size: 13px; margin: 0; padding: 20px; }
                     
-                    /* ส่วนหัวกระดาษแบบหน้าที่ 2 */
-                    .header { text-align: center; margin-bottom: 20px; font-weight: bold; }
-                    .header p { margin: 2px 0; font-size: 16px; }
+                    /* การตั้งค่าตาราง */
+                    table { 
+                        border-collapse: collapse; 
+                        width: 100%; 
+                        table-layout: auto; 
+                        margin-bottom: 15px; 
+                    }
+                    /* โค้ดสำคัญที่สั่งให้ <thead> เล่นซ้ำทุกหน้าเมื่อขึ้นหน้าใหม่ */
+                    thead { display: table-header-group; } 
+                    tr { page-break-inside: avoid; }
                     
-                    /* ส่วนของตาราง */
-                    table { border-collapse: collapse; width: 100%; margin-bottom: 15px; font-size: 14px; border: 1.5px solid #000; }
-                    th, td { border: 1px solid #000; padding: 6px 4px; text-align: center; }
+                    /* เส้นขอบตาราง และให้ข้อความตัดบรรทัดได้ (แก้ตารางขาด) */
+                    th, td { 
+                        border: 1px solid #000; 
+                        padding: 6px 4px; 
+                        text-align: center; 
+                        word-wrap: break-word; 
+                    }
                     th { font-weight: bold; }
                     
-                    /* จัดชื่อให้ชิดซ้าย (สมมติว่าเป็นคอลัมน์ที่ 3) */
-                    td:nth-child(3) { text-align: left; padding-left: 10px; }
+                    /* จัดชื่อให้ชิดซ้ายและอนุญาตให้ขึ้นบรรทัดใหม่ */
+                    td:nth-child(3) { 
+                        text-align: left; 
+                        padding-left: 8px; 
+                        white-space: normal; 
+                    }
                     
-                    /* จัดการกล่อง input (ถ้ามีตอนกดพิมพ์) ให้กลายเป็นข้อความธรรมดา */
-                    input { border: none; background: transparent; text-align: center; font-family: 'Sarabun', sans-serif; pointer-events: none; width: 100%; color: #000; font-size: 14px; }
-                    
-                    /* ส่วนท้ายกระดาษ (หมายเหตุ) แบบหน้าที่ 2 */
-                    .footer-note { margin-top: 15px; font-size: 14px; }
-                    .footer-note .right-align { text-align: right; margin-bottom: 15px; font-weight: normal; }
+                    /* หมายเหตุท้ายเอกสาร */
+                    .footer-note { margin-top: 15px; font-size: 13px; page-break-inside: avoid; }
+                    .footer-note .right-align { text-align: right; margin-bottom: 10px; }
                     .footer-note .remark-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; }
                     .footer-note p { margin: 2px 0; padding-left: 20px; text-indent: -20px; }
                     
-                    /* การตั้งค่าหน้ากระดาษเมื่อกดสั่ง Print */
+                    /* จัดระยะขอบหน้ากระดาษเมื่อพิมพ์ */
                     @media print {
-                        @page { size: A4 portrait; margin: 0; }
-                        body { padding: 1.5cm 1.5cm; }
+                        @page { size: A4 portrait; margin: 1.5cm; }
+                        body { padding: 0; }
                     }
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <p>บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
-                    <p>นักเรียนห้องเรียนพิเศษวิทยาศาสตร์ คณิตศาสตร์ เทคโนโลยี และสิ่งแวดล้อม (SMTE)</p>
-                    <p>ระดับชั้นมัธยมศึกษาปีที่ 4 ปีการศึกษา ${p.academicYear || '2568'}</p>
-                    <p>โรงเรียนสตรีพัทลุง</p>
-                </div>
-                
                 ${tableHtml}
                 
                 <div class="footer-note">
@@ -1394,19 +1436,22 @@ window.printPDF = () => {
         
         printWin.document.close();
         
-        // 3. เมื่อระบบสร้างหน้ากระดาษเสร็จ ให้สั่ง Print ทันที
+        // รอให้ฟอนต์โหลดเสร็จสมบูรณ์ก่อนปริ้น (ป้องกันฟอนต์เพี้ยนในมือถือ)
         printWin.onload = function() {
-            printWin.focus();
-            printWin.print();
-            printWin.close();
-            
-            // 4. คืนค่าตารางกลับเป็นเหมือนเดิม
-            state.projectView = oldView;
-            state.showAll = oldShowAll;
-            calculateAndRender();
+            setTimeout(() => {
+                printWin.focus();
+                printWin.print();
+                printWin.close();
+                
+                // คืนค่าตารางกลับเป็นโหมดเดิม
+                state.projectView = oldView;
+                state.showAll = oldShowAll;
+                calculateAndRender();
+            }, 500); 
         };
     }, 800);
 };
+
 
 
         document.getElementById('form-add-student').addEventListener('submit', async (e) => {
