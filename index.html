@@ -1315,12 +1315,11 @@ window.printPDF = async () => {
         return CustomSwal.fire('Info', 'ไม่มีข้อมูลสำหรับพิมพ์', 'info');
     }
 
-    // กำหนดค่าเริ่มต้น (ดึงจากฐานข้อมูลถ้าเคยบันทึกไว้)
     const defaultCount = p.acceptedCount || 30;
     const defaultGrade = p.gradeLevel || 'มัธยมศึกษาปีที่ 4';
     const defaultRemark = p.remark || `กรณีคะแนนรวมเท่ากัน จะจัดลำดับโดยพิจารณาจากคะแนนรวมวิชาวิทยาศาสตร์ฯ และวิชาคณิตศาสตร์เป็นลำดับแรก\nหากคะแนนสอบยังคงเท่ากันจะพิจารณาคะแนนสอบวิชาวิทยาศาสตร์ฯ วิชาคณิตศาสตร์ ตามลำดับ และหากคะแนนสอบยังคงเท่ากันให้เป็นไปตามดุลพินิจของสถานศึกษา`;
 
-    // 1. หน้าต่าง Popup ให้ผู้ใช้กรอกข้อมูล
+    // 1. หน้าต่าง Popup รับค่า
     const { value: formValues } = await Swal.fire({
         title: 'ตั้งค่าเอกสาร / บันทึก PDF',
         html: `
@@ -1337,7 +1336,7 @@ window.printPDF = async () => {
         `,
         focusConfirm: false,
         showCancelButton: true,
-        confirmButtonText: '<i class="fas fa-save"></i> บันทึก & สร้าง PDF',
+        confirmButtonText: '<i class="fas fa-print"></i> พิมพ์ / สร้าง PDF',
         cancelButtonText: 'ยกเลิก',
         confirmButtonColor: '#ef4444',
         preConfirm: () => {
@@ -1359,13 +1358,11 @@ window.printPDF = async () => {
     if (!formValues) return;
     const { count: acceptedCount, grade: gradeLevel, remark } = formValues;
 
-    // 2. บันทึกข้อมูลเข้า State และ Firebase (เพื่อให้โครงการจำค่าไว้ใช้ครั้งหน้า)
+    // 2. บันทึกข้อมูลเข้า State และ Firebase
     p.acceptedCount = acceptedCount;
     p.gradeLevel = gradeLevel;
     p.remark = remark;
-    
     try {
-        // ใช้ updateDoc เพื่ออัปเดตข้อมูลของ Project เข้าฐานข้อมูล
         if (typeof updateDoc !== 'undefined' && typeof doc !== 'undefined') {
             await updateDoc(doc(db, 'projects', p.id), { 
                 acceptedCount: acceptedCount, 
@@ -1374,7 +1371,7 @@ window.printPDF = async () => {
             });
         }
     } catch (e) {
-        console.warn("ไม่สามารถอัปเดตลงฐานข้อมูลได้ แต่ข้อมูลจะถูกบันทึกชั่วคราว:", e);
+        console.warn("ไม่สามารถอัปเดตลงฐานข้อมูลได้", e);
     }
 
     // 3. จัดเรียงคะแนนและแยกกลุ่มตัวจริง / สำรอง
@@ -1412,29 +1409,42 @@ window.printPDF = async () => {
         }
     });
 
-    // 4. ฟังก์ชันสร้างหัวตาราง (Thead) และท้ายตาราง (Tfoot) แบบไดนามิก
+    // 4. ฟังก์ชันสร้างหัวตารางและท้ายตาราง
     const colCount = 5 + p.subjects.length; 
     
+    // กำหนดสัดส่วนความกว้างคอลัมน์เพื่อไม่ให้ตารางพังในมือถือ
+    const subWidth = Math.floor(30 / (p.subjects.length || 1)); // คำนวณ % ให้วิชาต่างๆ
+    const colGroupHtml = `
+        <colgroup>
+            <col style="width: 7%;">
+            <col style="width: 15%;">
+            <col style="width: 25%;">
+            ${p.subjects.map(() => `<col style="width: ${subWidth}%;">`).join('')}
+            <col style="width: 8%;">
+            <col style="width: 15%;">
+        </colgroup>
+    `;
+
     const buildHeader = (isReserve = false) => `
         <thead style="display: table-header-group;">
             <tr>
-                <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 20px;">
-                    <div style="text-align: center; font-weight: bold; font-size: 16px; line-height: 1.4;">
-                        <img src="https://score-teal.vercel.app/Untitled%20design%20-%203.png" alt="โลโก้โรงเรียน" style="height: 85px; margin-bottom: 10px;">
+                <th colspan="${colCount}" style="border: none; background: white; padding-bottom: 15px;">
+                    <div style="text-align: center; font-weight: bold; font-size: 15px; line-height: 1.3;">
+                        <img src="https://score-teal.vercel.app/Untitled%20design%20-%203.png" alt="โลโก้โรงเรียน" style="height: 70px; margin-bottom: 8px;">
                         <p style="margin: 2px 0;">บัญชีแนบท้ายประกาศคะแนนผลการสอบ</p>
                         <p style="margin: 2px 0;">นักเรียน${p.name}</p>
                         <p style="margin: 2px 0;">ระดับชั้น${gradeLevel} ปีการศึกษา ${p.academicYear || '2568'}</p>
-                        ${isReserve ? `<p style="margin: 15px 0 5px 0; font-size: 17px; background-color: #f1f5f9; padding: 5px; border: 1px dashed #000;">*** บัญชีสำรอง ***</p>` : ''}
+                        ${isReserve ? `<p style="margin: 10px 0 5px 0; font-size: 16px; background-color: #f1f5f9; padding: 4px; border: 1px dashed #000;">*** บัญชีสำรอง ***</p>` : ''}
                     </div>
                 </th>
             </tr>
             <tr>
-                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ลำดับที่</th>
-                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">เลขประจำตัวสอบ</th>
-                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">ชื่อ-สกุล</th>
-                ${p.subjects.map(sub => `<th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">${sub.name}</th>`).join('')}
-                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">รวม</th>
-                <th style="border: 1px solid #000; padding: 6px 4px; font-weight: bold;">หมายเหตุ</th>
+                <th style="border: 1px solid #000; padding: 4px; font-weight: bold;">ลำดับที่</th>
+                <th style="border: 1px solid #000; padding: 4px; font-weight: bold;">เลขประจำตัวสอบ</th>
+                <th style="border: 1px solid #000; padding: 4px; font-weight: bold;">ชื่อ-สกุล</th>
+                ${p.subjects.map(sub => `<th style="border: 1px solid #000; padding: 4px; font-weight: bold;">${sub.name}</th>`).join('')}
+                <th style="border: 1px solid #000; padding: 4px; font-weight: bold;">รวม</th>
+                <th style="border: 1px solid #000; padding: 4px; font-weight: bold;">หมายเหตุ</th>
             </tr>
         </thead>
     `;
@@ -1443,88 +1453,124 @@ window.printPDF = async () => {
         <tfoot style="display: table-footer-group;">
             <tr>
                 <td colspan="${colCount}" style="border: none; padding-top: 15px; text-align: left;">
-                    <div style="font-size: 13.5px; page-break-inside: avoid;">
-                        <div style="text-align: right; margin-bottom: 10px;">(บัญชี${typeStr})</div>
+                    <div style="font-size: 13px; page-break-inside: avoid;">
+                        <div style="text-align: right; margin-bottom: 8px;">(บัญชี${typeStr})</div>
                         <div style="font-weight: bold; text-decoration: underline; margin-bottom: 5px;">หมายเหตุ</div>
-                        <div style="white-space: pre-wrap; padding-left: 20px; line-height: 1.5; font-family: 'Sarabun', sans-serif;">${remark}</div>
+                        <div style="white-space: pre-wrap; padding-left: 20px; line-height: 1.4;">${remark}</div>
                     </div>
                 </td>
             </tr>
         </tfoot>
     `;
 
-    // 5. สร้าง HTML ของตารางตัวจริง
-    let tableHtml = `<table style="border-collapse: collapse; width: 100%; table-layout: auto;">`;
-    tableHtml += buildHeader(false);
-    tableHtml += buildFooter('ตัวจริง');
-    tableHtml += `<tbody>`;
+    // 5. สร้าง HTML ของตารางทั้งหมด
+    let bodyHtml = `<div class="print-container">`;
+    
+    // ตารางตัวจริง
+    bodyHtml += `<table>`;
+    bodyHtml += colGroupHtml;
+    bodyHtml += buildHeader(false);
+    bodyHtml += buildFooter('ตัวจริง');
+    bodyHtml += `<tbody>`;
     realList.forEach(s => {
-        tableHtml += `<tr>
-            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
-            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.examId}</td>
-            <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>
-            ${p.subjects.map(sub => `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`).join('')}
-            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; font-weight: bold;">${s.total}</td>
-            <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;"></td>
+        bodyHtml += `<tr>
+            <td style="border: 1px solid #000; padding: 4px; text-align: center;">${s.printRank}</td>
+            <td style="border: 1px solid #000; padding: 4px; text-align: center;">${s.examId}</td>
+            <td style="border: 1px solid #000; padding: 4px; text-align: left; padding-left: 6px;">${s.prefix}${s.name} ${s.surname}</td>
+            ${p.subjects.map(sub => `<td style="border: 1px solid #000; padding: 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`).join('')}
+            <td style="border: 1px solid #000; padding: 4px; text-align: center; font-weight: bold;">${s.total}</td>
+            <td style="border: 1px solid #000; padding: 4px; text-align: center;"></td>
         </tr>`;
     });
-    tableHtml += `</tbody></table>`;
+    bodyHtml += `</tbody></table>`;
 
-    // 6. สร้าง HTML ของตารางสำรอง (หากมี) โดยบังคับให้ขึ้นหน้าใหม่ (page-break-before: always)
+    // ตารางสำรอง (ขึ้นหน้าใหม่เสมอ)
     if (reserveList.length > 0) {
-        tableHtml += `<div style="page-break-before: always; height: 1px; width: 100%;"></div>`;
-        tableHtml += `<table style="border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 20px;">`;
-        tableHtml += buildHeader(true);
-        tableHtml += buildFooter('สำรอง');
-        tableHtml += `<tbody>`;
+        bodyHtml += `<div style="page-break-before: always; height: 1px;"></div>`;
+        bodyHtml += `<table style="margin-top: 10px;">`;
+        bodyHtml += colGroupHtml;
+        bodyHtml += buildHeader(true);
+        bodyHtml += buildFooter('สำรอง');
+        bodyHtml += `<tbody>`;
         reserveList.forEach(s => {
-            tableHtml += `<tr>
-                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.printRank}</td>
-                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.examId}</td>
-                <td style="border: 1px solid #000; padding: 6px 4px; text-align: left; padding-left: 8px;">${s.prefix}${s.name} ${s.surname}</td>
-                ${p.subjects.map(sub => `<td style="border: 1px solid #000; padding: 6px 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`).join('')}
-                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; font-weight: bold;">${s.total}</td>
-                <td style="border: 1px solid #000; padding: 6px 4px; text-align: center; color: #555;">สำรองลำดับที่ ${s.printRank}</td>
+            bodyHtml += `<tr>
+                <td style="border: 1px solid #000; padding: 4px; text-align: center;">${s.printRank}</td>
+                <td style="border: 1px solid #000; padding: 4px; text-align: center;">${s.examId}</td>
+                <td style="border: 1px solid #000; padding: 4px; text-align: left; padding-left: 6px;">${s.prefix}${s.name} ${s.surname}</td>
+                ${p.subjects.map(sub => `<td style="border: 1px solid #000; padding: 4px; text-align: center;">${s.scores[sub.name] || '-'}</td>`).join('')}
+                <td style="border: 1px solid #000; padding: 4px; text-align: center; font-weight: bold;">${s.total}</td>
+                <td style="border: 1px solid #000; padding: 4px; text-align: center; font-size: 12px; color: #444;">สำรองลำดับที่ ${s.printRank}</td>
             </tr>`;
         });
-        tableHtml += `</tbody></table>`;
+        bodyHtml += `</tbody></table>`;
     }
+    bodyHtml += `</div>`;
 
-    // 7. สร้างหน้าต่าง Print
-    const printWin = window.open('', '', 'width=1000,height=800');
-    printWin.document.write(`
+    // 6. ใช้เทคนิค Iframe แทน window.open (แก้ปัญหา iPad/Mobile บล็อก Popup และจัดหน้าเพี้ยน)
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    const printDoc = iframe.contentWindow.document;
+    printDoc.open();
+    printDoc.write(`
         <!DOCTYPE html>
         <html lang="th">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>บัญชีแนบท้ายประกาศ - ${p.name}</title>
+            <title>ประกาศผลสอบ - ${p.name}</title>
             <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
             <style>
-                body { font-family: 'Sarabun', sans-serif; color: #000; font-size: 13.5px; margin: 0; padding: 20px; }
-                tr { page-break-inside: avoid; }
-                @media print {
-                    @page { size: A4 portrait; margin: 1.5cm; }
-                    body { padding: 0; }
-                    td, th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                /* บังคับ CSS สำหรับการพิมพ์บนมือถือและ iPad ให้พอดี A4 */
+                @page { size: A4 portrait; margin: 10mm; }
+                body { 
+                    font-family: 'Sarabun', sans-serif; 
+                    color: #000; 
+                    font-size: 13px; 
+                    margin: 0; 
+                    padding: 0; 
+                    background: white;
+                    -webkit-print-color-adjust: exact; 
+                    print-color-adjust: exact; 
                 }
+                .print-container { width: 100%; max-width: 100%; }
+                
+                table { 
+                    border-collapse: collapse; 
+                    width: 100%; 
+                    table-layout: fixed; /* บังคับไม่ให้คอลัมน์ขยายจนล้นขอบจอ */
+                    word-wrap: break-word; /* ถ้าข้อความยาวไปให้ตัดบรรทัด */
+                }
+                
+                tr { page-break-inside: avoid; }
+                td, th { overflow: hidden; }
+                
+                /* จัดการพื้นที่ว่างในตารางเพื่อให้ดูสบายตาขึ้น */
+                td { padding-top: 5px; padding-bottom: 5px; }
             </style>
         </head>
         <body>
-            ${tableHtml}
+            ${bodyHtml}
         </body>
         </html>
     `);
-    
-    printWin.document.close();
-    
-    // โหลดหน้าต่างเสร็จแล้วสั่ง Print
-    printWin.onload = function() {
+    printDoc.close();
+
+    // 7. รอให้หน้าโหลดและฟอนต์พร้อม ก่อนสั่งพิมพ์
+    iframe.contentWindow.onload = () => {
+        // ให้เวลาเบราว์เซอร์มือถือเรนเดอร์ฟอนต์สักครู่
         setTimeout(() => {
-            printWin.focus();
-            printWin.print(); 
-            printWin.close();
-        }, 500); 
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            // ลบ iframe ทิ้งหลังจากคำสั่งพิมพ์เริ่มทำงานเพื่อคืนหน่วยความจำ
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+            }, 3000);
+        }, 800);
     };
 };
 
