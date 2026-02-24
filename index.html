@@ -516,69 +516,40 @@
         });
 
         // --- 1. ROUTER & GLOBAL FUNCTIONS ---
-        window.router = {
-            navigate: (page) => {
-                window.location.hash = page; 
-                document.querySelectorAll('.view-section').forEach(el => {
-                    el.classList.add('hidden');
-                    el.classList.remove('fade-in');
-                });
-                const target = document.getElementById(`page-${page}`);
-                target.classList.remove('hidden');
-                void target.offsetWidth;
-                target.classList.add('fade-in');
-                
-                if(page === 'login') {
-                    document.getElementById('user-display').classList.add('hidden');
-                    document.getElementById('btn-logout').classList.add('hidden');
-                } else {
-                    document.getElementById('btn-logout').classList.remove('hidden');
-                }
-            }
-        };
+// อัปเดต Router ให้ทำการเปลี่ยน Hash แทน
+window.router = {
+    navigate: (path) => {
+        window.location.hash = path;
+    }
+};
 
-        window.goHome = () => {
-            if(state.user) {
-                window.router.navigate(state.isAdmin ? 'admin' : 'student');
-            } else {
-                window.router.navigate('login');
-            }
-        };
-        // ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
-// ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
-function handleHashChange() {
-    // ตัดเครื่องหมาย # ออก ถ้าไม่มีให้ default เป็น 'login' หรือหน้าแรก
-    let page = window.location.hash.slice(1) || 'login'; 
-    
-    // --- [เริ่ม] ส่วนที่เพิ่มเพื่อป้องกันการเข้าถึงผ่าน URL ---
-    const adminPages = ['admin', 'detail'];
-    const studentPages = ['student', 'student-result'];
+// อัปเดตฟังก์ชันจัดการ Hash Change
+window.handleHashChange = async () => {
+    // ลบ # ออก และแยก URL เป็นส่วนๆ เช่น detail/123456 -> ['detail', '123456']
+    const hash = window.location.hash.replace('#', '');
+    const parts = hash.split('/');
+    const page = parts[0] || 'login';
+    const id = parts[1]; // ID ของโครงการ (ถ้ามี)
 
-    // 1. ตรวจสอบ: ถ้าจะเข้าหน้า Admin แต่ไม่มีสิทธิ์ Admin ให้เตะกลับไปหน้า Login
-    if (adminPages.includes(page) && !state.isAdmin) {
+    // ป้องกันการเข้าถึงถ้ายังไม่เข้าสู่ระบบ
+    if (!auth.currentUser && page !== 'login') {
         window.location.hash = 'login';
-        return; 
+        return;
     }
 
-    // 2. ตรวจสอบ: ถ้าจะเข้าหน้านักเรียน แต่ยังไม่ได้ล็อกอิน ให้เตะกลับไปหน้า Login
-    if (studentPages.includes(page) && !state.user) {
-        window.location.hash = 'login';
-        return; 
-    }
-    // --- [จบ] ส่วนที่เพิ่มเพื่อป้องกันการเข้าถึงผ่าน URL ---
-
-    // เรียกใช้ Logic เดิมในการสลับหน้า
+    // ซ่อนทุกหน้า
     document.querySelectorAll('.view-section').forEach(el => {
         el.classList.add('hidden');
         el.classList.remove('fade-in');
     });
-    
+
+    // แสดงหน้าที่ต้องการ
     const target = document.getElementById(`page-${page}`);
     if (target) {
         target.classList.remove('hidden');
         target.classList.add('fade-in');
-        
-        // จัดการเรื่องปุ่ม Logout หรือการแสดงชื่อตาม Logic เดิม
+
+        // จัดการแสดงปุ่ม Logout / ชื่อผู้ใช้
         if(page === 'login') {
             document.getElementById('user-display').classList.add('hidden');
             document.getElementById('btn-logout').classList.add('hidden');
@@ -586,8 +557,25 @@ function handleHashChange() {
             document.getElementById('btn-logout').classList.remove('hidden');
         }
     }
-}
-// ฟังเหตุการณ์ hashchange และ load (เมื่อเปิดเว็บครั้งแรก)
+
+    // โหลดข้อมูลเมื่อรีเฟรช (ดึงจาก ID ใน Hash)
+    if (auth.currentUser) {
+        if (page === 'detail' && id) {
+            // กรณี Admin รีเฟรชในหน้าดูรายละเอียดโครงการ
+            if (!state.currentProject || state.currentProject.id !== id) {
+                await window.openProjectDetail(id, false); 
+            }
+        } else if (page === 'student-result' && id) {
+            // กรณี นักเรียน รีเฟรชในหน้าดูผลคะแนน
+            // ** สำคัญ: หากมีฟังก์ชันแสดงผลคะแนน ให้เรียกใช้ที่นี่ โดยส่ง ID เข้าไป **
+            // เช่น: await showStudentResult(id);
+        } else if (page === 'admin') {
+            loadAdminProjects();
+        }
+    }
+};
+
+// รับฟังการเปลี่ยนแปลงของ Hash
 window.addEventListener('hashchange', handleHashChange);
 window.addEventListener('load', handleHashChange);
 
@@ -641,24 +629,63 @@ window.addEventListener('load', handleHashChange);
         };
 
         // --- 2. AUTHENTICATION ---
-        onAuthStateChanged(auth, (user) => {
-            const loader = document.getElementById('loading');
-            loader.classList.add('hidden');
-            if (user) {
-                state.user = user;
-                if (!user.isAnonymous) {
-                    state.isAdmin = true;
-                    document.getElementById('user-display').querySelector('span').innerText = "Admin Mode";
-                    document.getElementById('user-display').classList.remove('hidden');
-                    loadAdminProjects();
-                    window.router.navigate('admin');
-                }
+        onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        state.user = user;
+        
+        // เช็ค Hash ปัจจุบันว่าผู้ใช้พยายามเข้าหน้าไหน
+        const hash = window.location.hash.replace('#', '');
+        const parts = hash.split('/');
+        const page = parts[0];
+
+        const isAdmin = user.email ? true : false; // เช็คว่าเป็น Admin หรือไม่
+
+        if (isAdmin) {
+            document.getElementById('user-display').querySelector('span').innerText = 'Admin';
+            document.getElementById('user-display').classList.remove('hidden');
+            
+            // ถ้าไม่มี Hash หรืออยู่หน้า login/student ให้เด้งไปหน้า admin
+            if (!page || page === 'login' || page === 'student') {
+                window.location.hash = 'admin';
             } else {
-                state.user = null;
-                state.isAdmin = false;
-                window.router.navigate('login');
+                handleHashChange(); // โหลดหน้าตาม Hash (เช่น #detail/...)
             }
-        });
+        } else {
+            // กรณีนักเรียน: ดึงข้อมูลนักเรียนกลับมาใส่ State หากเพิ่งรีเฟรชหน้า
+            if (!state.myRecords) {
+                document.getElementById('loading').classList.remove('hidden');
+                try {
+                    // ข้อสังเกต: ปรับฟิลด์ที่ใช้ query ตามที่คุณเซฟเลขบัตร ปชช. (เช่น user.uid หรือ citizenId)
+                    const q = query(collection(db, 'students'), where('citizenId', '==', user.uid));
+                    const snaps = await getDocs(q);
+                    const records = [];
+                    snaps.forEach(doc => records.push({id: doc.id, ...doc.data()}));
+                    state.myRecords = records;
+                    
+                    if (records.length > 0) {
+                        const s = records[0];
+                        document.getElementById('user-display').querySelector('span').innerText = `${s.prefix}${s.name}`;
+                        document.getElementById('user-display').classList.remove('hidden');
+                    }
+                } catch (err) {
+                    console.error('Error fetching student data:', err);
+                } finally {
+                    document.getElementById('loading').classList.add('hidden');
+                }
+            }
+
+            if (!page || page === 'login' || page === 'admin') {
+                window.location.hash = 'student';
+            } else {
+                handleHashChange(); // โหลดหน้าตาม Hash (เช่น #student-result/...)
+            }
+        }
+    } else {
+        state.user = null;
+        state.myRecords = null;
+        window.location.hash = 'login';
+    }
+});
 
         document.getElementById('form-student').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -900,7 +927,9 @@ window.addEventListener('load', handleHashChange);
                         </div>
                     </div>
                 `;
-                window.router.navigate('student-result');
+                if (pushHash) {
+        window.location.hash = `student-result/${projectId}`;
+    }
             } catch(e) { console.error(e); } finally { document.getElementById('loading').classList.add('hidden'); }
         };
 
@@ -1015,7 +1044,17 @@ window.openProjectDetail = async (id) => {
             headerRow.innerHTML += `<th class="px-6 py-4 text-center border-b border-slate-200">รวม</th><th class="px-6 py-4 text-center border-b border-slate-200">ลบ</th>`;
 
             await loadStudents(id);
-            window.router.navigate('detail');
+        
+        // เปลี่ยน Hash ให้เป็นหน้า Detail พร้อมแนบ ID โครงการ
+        if (pushHash) {
+            window.location.hash = `detail/${id}`;
+        } else {
+            // ถ้าไม่ได้เปลี่ยน Hash (คือเกิดจากการ Refresh) ให้แสดงหน้าเลย
+            window.router.navigate(`detail/${id}`);
+        }
+    } finally {
+        document.getElementById('loading').classList.add('hidden');
+    }
         };
 
         window.openEditProjectModal = () => {
