@@ -545,10 +545,28 @@
             }
         };
         // ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
+// ฟังก์ชันสำหรับจัดการการแสดงผลตาม Hash
 function handleHashChange() {
     // ตัดเครื่องหมาย # ออก ถ้าไม่มีให้ default เป็น 'login' หรือหน้าแรก
-    const page = window.location.hash.slice(1) || 'login'; 
+    let page = window.location.hash.slice(1) || 'login'; 
     
+    // --- [เริ่ม] ส่วนที่เพิ่มเพื่อป้องกันการเข้าถึงผ่าน URL ---
+    const adminPages = ['admin', 'detail'];
+    const studentPages = ['student', 'student-result'];
+
+    // 1. ตรวจสอบ: ถ้าจะเข้าหน้า Admin แต่ไม่มีสิทธิ์ Admin ให้เตะกลับไปหน้า Login
+    if (adminPages.includes(page) && !state.isAdmin) {
+        window.location.hash = 'login';
+        return; 
+    }
+
+    // 2. ตรวจสอบ: ถ้าจะเข้าหน้านักเรียน แต่ยังไม่ได้ล็อกอิน ให้เตะกลับไปหน้า Login
+    if (studentPages.includes(page) && !state.user) {
+        window.location.hash = 'login';
+        return; 
+    }
+    // --- [จบ] ส่วนที่เพิ่มเพื่อป้องกันการเข้าถึงผ่าน URL ---
+
     // เรียกใช้ Logic เดิมในการสลับหน้า
     document.querySelectorAll('.view-section').forEach(el => {
         el.classList.add('hidden');
@@ -560,17 +578,15 @@ function handleHashChange() {
         target.classList.remove('hidden');
         target.classList.add('fade-in');
         
-        [span_2](start_span)// จัดการเรื่องปุ่ม Logout หรือการแสดงชื่อตาม Logic เดิม[span_2](end_span)
+        // จัดการเรื่องปุ่ม Logout หรือการแสดงชื่อตาม Logic เดิม
         if(page === 'login') {
             document.getElementById('user-display').classList.add('hidden');
             document.getElementById('btn-logout').classList.add('hidden');
         } else {
-            // อาจต้องเช็ค state.user เพิ่มเติมเพื่อความปลอดภัย
             document.getElementById('btn-logout').classList.remove('hidden');
         }
     }
 }
-
 // ฟังเหตุการณ์ hashchange และ load (เมื่อเปิดเว็บครั้งแรก)
 window.addEventListener('hashchange', handleHashChange);
 window.addEventListener('load', handleHashChange);
